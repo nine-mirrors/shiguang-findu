@@ -1,24 +1,63 @@
-<template><span>{{ display }}</span></template>
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
-const props = defineProps({ value: { type: Number, default: 0 }, suffix: { type: String, default: '' } })
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+
+const props = defineProps({
+  value: {
+    type: [Number, String],
+    default: 0
+  },
+  suffix: {
+    type: String,
+    default: ''
+  }
+})
+
 const current = ref(0)
 let timer = 0
-function animate() {
-  cancelAnimationFrame(timer)
+
+const isNumericValue = computed(() => {
+  return props.value !== '' && Number.isFinite(Number(props.value))
+})
+
+const display = computed(() => {
+  if (!isNumericValue.value) return `${props.value}${props.suffix}`
+
+  return `${current.value}${props.suffix}`
+})
+
+const stopAnimate = () => {
+  if (timer) cancelAnimationFrame(timer)
+}
+
+const animate = () => {
+  stopAnimate()
+
+  if (!isNumericValue.value) return
+
   const from = current.value
-  const to = Number(props.value) || 0
+  const to = Number(props.value)
   const start = performance.now()
   const duration = 850
-  const tick = (now) => {
-    const p = Math.min(1, (now - start) / duration)
-    const eased = 1 - Math.pow(1 - p, 3)
+
+  const tick = now => {
+    const progress = Math.min(1, (now - start) / duration)
+    const eased = 1 - Math.pow(1 - progress, 3)
+
     current.value = Math.round(from + (to - from) * eased)
-    if (p < 1) timer = requestAnimationFrame(tick)
+
+    if (progress < 1) timer = requestAnimationFrame(tick)
   }
+
   timer = requestAnimationFrame(tick)
 }
+
 onMounted(animate)
+
 watch(() => props.value, animate)
-const display = computed(() => `${current.value}${props.suffix}`)
+
+onBeforeUnmount(stopAnimate)
 </script>
+
+<template>
+  <span>{{ display }}</span>
+</template>
