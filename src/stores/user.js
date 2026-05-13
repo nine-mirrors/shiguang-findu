@@ -1,18 +1,21 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { loginApi, registerApi, logoutApi } from '@/api/auth'
+import { getUserProfileApi, updateUserProfileApi } from '@/api/user'
 import { storage } from '@/utils/storage'
 
 export const useUserStore = defineStore('user', () => {
   const token = ref(storage.get('token', ''))
   const user = ref(storage.get('user', null))
+  const profileLoaded = ref(false)
+  const profileLoading = ref(false)
 
   const isLogin = computed(() => Boolean(token.value && user.value?.id))
   const isAdmin = computed(() => user.value?.role === 'admin')
   const displayName = computed(() => user.value?.username || user.value?.email || '同学')
   const avatarText = computed(() => displayName.value.slice(0, 1))
 
-  function normalizeAuthPayload(res) {
+  const normalizeAuthPayload = res => {
     const payload = res?.data || res
 
     return {
@@ -21,14 +24,38 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  function setAuth(payload) {
+  const normalizeUserPayload = res => {
+    const payload = res?.data || res
+
+    return payload?.user || payload
+  }
+
+  const setAuth = payload => {
     token.value = payload.token
     user.value = payload.user
+    profileLoaded.value = true
+
     storage.set('token', token.value)
     storage.set('user', user.value)
   }
 
-  async function login(form) {
+  const setUser = value => {
+    user.value = value
+    profileLoaded.value = true
+    storage.set('user', user.value)
+  }
+
+  const clearAuth = () => {
+    token.value = ''
+    user.value = null
+    profileLoaded.value = false
+    profileLoading.value = false
+
+    storage.remove('token')
+    storage.remove('user')
+  }
+
+  const login = async form => {
     const res = await loginApi(form)
     const payload = normalizeAuthPayload(res)
 
@@ -40,7 +67,7 @@ export const useUserStore = defineStore('user', () => {
     return payload
   }
 
-  async function register(form) {
+  const register = async form => {
     const res = await registerApi(form)
     const payload = normalizeAuthPayload(res)
 
@@ -52,28 +79,67 @@ export const useUserStore = defineStore('user', () => {
     return payload
   }
 
-  async function logout() {
+  const fetchProfile = async (force = false) => {
+    if (!token.value) return null
+    if (profileLoaded.value && !force) return user.value
+    if (profileLoading.value) return user.value
+
+    profileLoading.value = true
+
+    try {
+      const res = await getUserProfileApi()
+      const currentUser = normalizeUserPayload(res)
+
+      if (!currentUser?.id) {
+        throw new Error('用户资料接口返回数据格式不正确')
+      }
+
+      setUser(currentUser)
+      return currentUser
+    } catch (error) {
+      clearAuth()
+      throw error
+    } finally {
+      profileLoading.value = false
+    }
+  }
+
+  const updateProfile = async form => {
+    const res = await updateUserProfileApi(form)
+    const currentUser = normalizeUserPayload(res)
+
+    if (!currentUser?.id) {
+      throw new Error('用户资料更新接口返回数据格式不正确')
+    }
+
+    setUser(currentUser)
+    return currentUser
+  }
+
+  const logout = async () => {
     try {
       if (token.value) {
         await logoutApi()
       }
     } finally {
-      token.value = ''
-      user.value = null
-      storage.remove('token')
-      storage.remove('user')
+      clearAuth()
     }
   }
 
   return {
     token,
     user,
+    profileLoaded,
+    profileLoading,
     isLogin,
     isAdmin,
     displayName,
     avatarText,
     login,
     register,
-    logout
+    fetchProfile,
+    updateProfile,
+    logout,
+    clearAuth
   }
 })

@@ -26,14 +26,20 @@ const rules = {
   ]
 }
 
-async function submit() {
+const getRedirectPath = () => {
+  if (typeof route.query.redirect === 'string') return route.query.redirect
+
+  return userStore.isAdmin ? '/admin/dashboard' : '/home'
+}
+
+const submit = async () => {
   await formRef.value.validate()
   loading.value = true
 
   try {
     await userStore.login(form)
     ElMessage.success('登录成功')
-    router.push(route.query.redirect || (userStore.isAdmin ? '/admin/dashboard' : '/home'))
+    router.push(getRedirectPath())
   } finally {
     loading.value = false
   }
@@ -49,19 +55,19 @@ async function submit() {
       <div class="auth-hero">
         <span class="kicker">拾光 FindU · 校园智能协寻</span>
 
-        <h1>让遗失的信息，不再被群消息淹没。</h1>
+        <h1>拾起遗失之物，找回校园微光。</h1>
 
-        <p>统一发布、快速筛选、智能匹配、状态追踪。面向真实校园场景设计，而不是简单的信息表格。</p>
+        <p>“拾”是拾起遗失之物，“光”是照亮线索与善意。拾光 FindU 希望让每一条失物线索被看见，让每一次归还都有回应。</p>
 
         <div class="mini-board">
           <div>
-            <b>多维</b>
-            <span>信息筛选</span>
+            <b>拾物</b>
+            <span>统一发布招领</span>
           </div>
 
           <div>
-            <b>4步</b>
-            <span>完成发布流程</span>
+            <b>寻光</b>
+            <span>快速匹配线索</span>
           </div>
 
           <div>
@@ -216,6 +222,7 @@ async function submit() {
 
 .switch {
   text-align: center;
+  padding: 20px;
 }
 
 .switch a {

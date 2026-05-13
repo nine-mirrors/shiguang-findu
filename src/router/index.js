@@ -187,8 +187,25 @@ const router = createRouter({
   ]
 })
 
-router.beforeEach(to => {
+router.beforeEach(async to => {
   const userStore = useUserStore()
+
+  if (userStore.token && !userStore.profileLoaded) {
+    try {
+      await userStore.fetchProfile()
+    } catch {
+      if (to.meta.requiresAuth) {
+        ElMessage.warning('登录状态已失效，请重新登录')
+
+        return {
+          path: '/login',
+          query: {
+            redirect: to.fullPath
+          }
+        }
+      }
+    }
+  }
 
   if (to.meta.requiresAuth && !userStore.isLogin) {
     ElMessage.warning('请先登录后再继续操作')

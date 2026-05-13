@@ -10,7 +10,21 @@ const request = axios.create({
   }
 })
 
-// 明确声明公开接口，不能只用 startsWith 判断
+/**
+ * 公开接口白名单
+ *
+ * 这些接口不强制携带 token：
+ * - 登录
+ * - 注册
+ * - 发送邮箱验证码
+ * - 分类列表
+ * - 失物招领大厅列表
+ * - 失物招领详情
+ *
+ * 注意：
+ * 不要简单用 startsWith('/api/lost-found/items')，
+ * 否则 POST /api/lost-found/items 这种需要登录的接口也会被误判成公开接口。
+ */
 const publicApis = [
   { method: 'post', url: '/api/auth/login' },
   { method: 'post', url: '/api/auth/register' },
@@ -19,21 +33,31 @@ const publicApis = [
   { method: 'get', url: '/api/lost-found/items' }
 ]
 
-function isPublicApi(config) {
+const normalizeUrl = url => {
+  return String(url || '').split('?')[0]
+}
+
+const isPublicApi = config => {
   const method = String(config.method || 'get').toLowerCase()
-  const url = config.url || ''
+  const url = normalizeUrl(config.url)
 
   return publicApis.some(item => {
-    if (item.method !== method) {
-      return false
-    }
+    if (item.method !== method) return false
 
     if (item.url === '/api/lost-found/items') {
-      return url === '/api/lost-found/items' || /^\/api\/lost-found\/items\/\d+$/.test(url)
+      return url === '/api/lost-found/items' || /^\/api\/lost-found\/items\/[^/]+$/.test(url)
     }
 
     return url === item.url
   })
+}
+
+const redirectToLogin = () => {
+  const currentPath = window.location.pathname + window.location.search
+
+  if (window.location.pathname === '/login') return
+
+  window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`
 }
 
 request.interceptors.request.use(
@@ -53,9 +77,17 @@ request.interceptors.request.use(
 
 request.interceptors.response.use(
   response => {
+    if (response.config.responseType === 'blob') {
+      return response.data
+    }
+
     return response.data
   },
   error => {
+    if (axios.isCancel(error)) {
+      return Promise.reject(error)
+    }
+
     const status = error.response?.status
     const validation = error.response?.data?.errors
     const firstField = validation && Object.keys(validation)[0]
@@ -64,11 +96,13 @@ request.interceptors.response.use(
       ? validation[firstField]?.[0]
       : error.response?.data?.message || error.message || '请求失败'
 
-    if (status === 401) {
+    if (!status) {
+      ElMessage.error('网络连接失败，请检查后端服务或网络状态')
+    } else if (status === 401) {
       storage.remove('token')
       storage.remove('user')
       ElMessage.error('登录状态已失效，请重新登录')
-      window.location.href = '/login'
+      redirectToLogin()
     } else if (status === 403) {
       ElMessage.error('当前账号没有操作权限')
     } else if (status === 404) {

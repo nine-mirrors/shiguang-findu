@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, ref ,watch} from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps({
@@ -21,6 +21,19 @@ const props = defineProps({
   }
 })
 
+const emit = defineEmits(['update:modelValue', 'update:file'])
+
+const fileInput = ref(null)
+const previewVisible = ref(false)
+const objectUrl = ref('')
+
+const revokeObjectUrl = () => {
+  if (!objectUrl.value) return
+
+  URL.revokeObjectURL(objectUrl.value)
+  objectUrl.value = ''
+}
+
 const clearNativeInput = () => {
   if (fileInput.value) fileInput.value.value = ''
 }
@@ -33,13 +46,7 @@ const syncExternalClear = () => {
   previewVisible.value = false
 }
 
-const emit = defineEmits(['update:modelValue', 'update:file'])
-
-const fileInput = ref(null)
-const previewVisible = ref(false)
-const objectUrl = ref('')
-
-function choose() {
+const choose = () => {
   fileInput.value?.click()
 }
 
@@ -51,29 +58,20 @@ const clear = () => {
   clearNativeInput()
 }
 
-function revokeObjectUrl() {
-  if (objectUrl.value) {
-    URL.revokeObjectURL(objectUrl.value)
-    objectUrl.value = ''
-  }
-}
-
-function onFileChange(event) {
+const onFileChange = event => {
   const currentFile = event.target.files?.[0]
 
-  if (!currentFile) {
-    return
-  }
+  if (!currentFile) return
 
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(currentFile.type)) {
     ElMessage.warning('请上传 JPG、PNG 或 WEBP 图片')
-    event.target.value = ''
+    clearNativeInput()
     return
   }
 
   if (currentFile.size > 2 * 1024 * 1024) {
     ElMessage.warning('图片不能超过 2MB，正式上线建议后端压缩或使用对象存储')
-    event.target.value = ''
+    clearNativeInput()
     return
   }
 
@@ -83,6 +81,8 @@ function onFileChange(event) {
 
   emit('update:modelValue', objectUrl.value)
   emit('update:file', currentFile)
+
+  clearNativeInput()
 }
 
 watch(
@@ -90,9 +90,7 @@ watch(
   syncExternalClear
 )
 
-onBeforeUnmount(() => {
-  revokeObjectUrl()
-})
+onBeforeUnmount(revokeObjectUrl)
 </script>
 
 <template>

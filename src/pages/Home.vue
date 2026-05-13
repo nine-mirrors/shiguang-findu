@@ -5,7 +5,6 @@ import StatCard from '@/components/StatCard.vue'
 import ItemCard from '@/components/ItemCard.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import { getCategoriesApi } from '@/api/category'
-import { fetchDashboard } from '@/api/lostFound'
 import { getItemsApi } from '@/api/item'
 
 const router = useRouter()
@@ -96,19 +95,59 @@ function goCategory(category) {
 }
 
 async function loadCategories() {
-  const res = await getCategoriesApi()
-  categoryList.value = normalizeCategories(res)
+  try {
+    const res = await getCategoriesApi()
+    categoryList.value = normalizeCategories(res)
+  } catch {
+    categoryList.value = []
+  }
 }
 
 async function loadHomeData() {
-  dashboard.value = await fetchDashboard()
-
   const res = await getItemsApi({
     page: 1,
     page_size: 6
   })
 
   items.value = normalizeItems(res)
+  dashboard.value = buildDashboard(items.value)
+}
+
+const buildDashboard = list => {
+  const approvedItems = list.filter(item => {
+    const auditStatus = item.auditStatus || item.audit_status || 'approved'
+
+    return auditStatus === 'approved'
+  })
+
+  const done = approvedItems.filter(item => ['done', 'completed'].includes(item.status)).length
+  const pending = list.filter(item => (item.auditStatus || item.audit_status) === 'pending').length
+
+  const locationMap = approvedItems.reduce((map, item) => {
+    const location = item.location || '未知地点'
+
+    map[location] = (map[location] || 0) + 1
+
+    return map
+  }, {})
+
+  const categoryMap = approvedItems.reduce((map, item) => {
+    const category = typeof item.category === 'string'
+      ? item.category
+      : item.category?.name || item.category_name || '其他'
+
+    map[category] = (map[category] || 0) + 1
+
+    return map
+  }, {})
+
+  return {
+    total: approvedItems.length,
+    done,
+    pending,
+    locations: Object.entries(locationMap).map(([name, value]) => ({ name, value })),
+    categories: Object.entries(categoryMap).map(([name, value]) => ({ name, value }))
+  }
 }
 
 onMounted(async () => {
@@ -123,11 +162,11 @@ onMounted(async () => {
   <div class="home-page">
     <section class="hero container">
       <div class="hero-copy fade-up">
-        <span class="kicker">拾光 FindU 智能协寻中心</span>
+        <span class="kicker">拾光 FindU · 校园智能失物协寻平台</span>
 
-        <h1>把“找东西”从群消息里救出来。</h1>
+        <h1>拾起遗失之物，找回校园微光。</h1>
 
-        <p>面向校园真实场景的失物招领平台：统一发布、智能匹配、状态追踪、审核管理，让每一条协寻信息都有清晰去向。</p>
+        <p>从发布、审核、匹配到认领交接，拾光 FindU 让校园失物信息不再淹没于群聊，让真正的失主更快找到线索，也让每一次归还都有流程和记录。</p>
 
         <div class="search-box">
           <el-input v-model="keyword" size="large" placeholder="搜索耳机、校园卡、钥匙、图书馆等" @keyup.enter="goSearch" />
@@ -144,7 +183,7 @@ onMounted(async () => {
         <div class="phone-card">
           <div class="phone-top">
             <span></span>
-            <b>智能匹配提醒</b>
+            <b>拾光线索提醒</b>
           </div>
 
           <div class="match-item">

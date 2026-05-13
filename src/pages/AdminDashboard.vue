@@ -75,11 +75,11 @@ onMounted(load)
   <div class="admin-dashboard fade-up">
     <section class="admin-hero">
       <div>
-        <span class="kicker">拾光运营中枢</span>
+        <span class="kicker">拾光 FindU · 运营管理后台</span>
 
-        <h1>不只是审核列表，而是完整的失物运营后台。</h1>
+        <h1>让每一次归还都有流程，让每一份善意都有记录。</h1>
 
-        <p>管理员只处理平台运营、内容质量、认领核验、滞留移交、用户风控和数据分析，不参与普通用户发布流程。</p>
+        <p>拾光后台用于处理发布审核、认领核验、交接记录、滞留移交与风险管理，让校园失物招领从“群消息碰运气”变成可追踪、可审核、可复盘的协寻流程。</p>
       </div>
 
       <div class="hero-actions">

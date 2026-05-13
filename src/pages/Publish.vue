@@ -191,8 +191,12 @@ function getImageList() {
 }
 
 async function loadCategories() {
-  const res = await getCategoriesApi()
-  categoryList.value = normalizeCategories(res)
+  try {
+    const res = await getCategoriesApi()
+    categoryList.value = normalizeCategories(res)
+  } catch {
+    categoryList.value = []
+  }
 }
 
 async function submit() {

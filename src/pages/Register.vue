@@ -51,20 +51,36 @@ const rules = {
   ]
 }
 
-async function sendCode() {
-  if (!form.email) {
-    ElMessage.warning('请先填写邮箱')
-    return
-  }
+const sendCode = async () => {
+  if (countdown.value > 0) return
+
+  await formRef.value.validateField('email')
 
   codeLoading.value = true
 
   try {
-    await sendEmailCodeApi(form.email)
+    await sendEmailCodeApi(form.email, 'register')
     ElMessage.success('验证码已发送，请查看邮箱')
+    startCountdown()
   } finally {
     codeLoading.value = false
   }
+}
+const countdown = ref(0)
+
+let timer = null
+
+const startCountdown = () => {
+  countdown.value = 60
+
+  timer = setInterval(() => {
+    countdown.value -= 1
+
+    if (countdown.value <= 0) {
+      clearInterval(timer)
+      timer = null
+    }
+  }, 1000)
 }
 
 async function submit() {
