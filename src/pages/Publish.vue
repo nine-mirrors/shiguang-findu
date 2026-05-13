@@ -314,20 +314,50 @@ onMounted(loadCategories)
       </div>
 
       <aside class="preview-panel fade-up">
-        <div class="preview-header">
-          <b>实时预览</b>
-          <span>用户大厅卡片效果</span>
-        </div>
+  <div class="preview-header">
+    <b>实时预览</b>
+    <span>发布后的卡片效果</span>
+  </div>
 
-        <ItemCard :item="previewItem" />
+  <div class="live-card">
+    <div class="live-cover" :class="{ empty: !form.image }">
+      <img v-if="form.image" :src="form.image" alt="物品预览图" />
 
-        <RetentionBadge v-if="previewItem.type === 'found'" :item="previewItem" class="preview-retention" />
+      <div v-else class="cover-empty">
+        <span>上传照片后展示预览</span>
+      </div>
+    </div>
 
-        <div class="assist-box">
-          <b>智能填写建议</b>
-          <p>{{ assistText }}</p>
-        </div>
-      </aside>
+    <div class="live-body">
+      <div class="live-head">
+        <b>{{ previewItem.name }}</b>
+        <el-tag :type="form.type === 'lost' ? 'warning' : 'success'">
+          {{ form.type === 'lost' ? '失物' : '招领' }}
+        </el-tag>
+      </div>
+
+      <p>{{ previewItem.description }}</p>
+
+      <div class="live-meta">
+        <span>{{ previewItem.category }}</span>
+        <span>{{ previewItem.location }}</span>
+        <span>{{ previewItem.happenTime }}</span>
+      </div>
+
+      <div class="live-footer">
+        <span>{{ previewItem.auditStatus === 'pending' ? '待审核' : '已展示' }}</span>
+        <span>{{ form.image ? '有照片可比对' : '暂无照片' }}</span>
+      </div>
+    </div>
+  </div>
+
+  <RetentionBadge v-if="previewItem.type === 'found'" :item="previewItem" class="preview-retention" />
+
+  <div class="assist-box">
+    <b>智能填写建议</b>
+    <p>{{ assistText }}</p>
+  </div>
+</aside>
     </section>
   </div>
 </template>
@@ -422,6 +452,74 @@ onMounted(loadCategories)
 
 .assist-box p {
   margin: 0;
+}
+
+.live-card {
+  overflow: hidden;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, .88);
+  box-shadow: 0 18px 48px rgba(31, 45, 92, .12);
+}
+
+.live-cover {
+  height: 210px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #eef4ff, #f8fbff);
+}
+
+.live-cover img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #f8fbff;
+}
+
+.cover-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.live-body {
+  padding: 18px;
+}
+
+.live-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.live-head b {
+  font-size: 19px;
+  line-height: 1.35;
+}
+
+.live-body p {
+  margin: 12px 0 16px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.live-meta {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(17, 24, 39, .08);
+  color: #64748b;
+  font-size: 14px;
+}
+
+.live-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: #8b95a7;
+  font-size: 13px;
 }
 
 @media (max-width: 920px) {

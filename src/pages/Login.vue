@@ -162,8 +162,8 @@ const submit = async () => {
 
 .auth-hero h1 {
   font-size: 48px;
-  line-height: 1.08;
-  letter-spacing: -.06em;
+  line-height: 1.27;
+  letter-spacing: 0;
   margin: 24px 0 18px;
 }
 

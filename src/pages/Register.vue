@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { onBeforeUnmount, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { sendEmailCodeApi } from '@/api/auth'
@@ -11,6 +11,9 @@ const userStore = useUserStore()
 const formRef = ref()
 const loading = ref(false)
 const codeLoading = ref(false)
+const countdown = ref(0)
+
+let timer = null
 
 const form = reactive({
   username: '',
@@ -23,7 +26,7 @@ const form = reactive({
 const rules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 2, max: 20, message: '用户名长度应为 2 到 20 个字符', trigger: 'blur' }
+    { min: 2, max: 10, message: '用户名长度应为 2 到 10 个字符', trigger: 'blur' }
   ],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
@@ -42,13 +45,34 @@ const rules = {
       validator: (_, value, callback) => {
         if (value === form.password) {
           callback()
-        } else {
-          callback(new Error('两次密码不一致'))
+          return
         }
+
+        callback(new Error('两次密码不一致'))
       },
       trigger: 'blur'
     }
   ]
+}
+
+const clearTimer = () => {
+  if (!timer) return
+
+  clearInterval(timer)
+  timer = null
+}
+
+const startCountdown = () => {
+  clearTimer()
+  countdown.value = 60
+
+  timer = setInterval(() => {
+    countdown.value -= 1
+
+    if (countdown.value <= 0) {
+      clearTimer()
+    }
+  }, 1000)
 }
 
 const sendCode = async () => {
@@ -66,24 +90,8 @@ const sendCode = async () => {
     codeLoading.value = false
   }
 }
-const countdown = ref(0)
 
-let timer = null
-
-const startCountdown = () => {
-  countdown.value = 60
-
-  timer = setInterval(() => {
-    countdown.value -= 1
-
-    if (countdown.value <= 0) {
-      clearInterval(timer)
-      timer = null
-    }
-  }, 1000)
-}
-
-async function submit() {
+const submit = async () => {
   await formRef.value.validate()
   loading.value = true
 
@@ -91,14 +99,12 @@ async function submit() {
     await userStore.register(form)
     ElMessage.success('注册成功')
     router.push('/home')
-  } catch (error) {
-    if (!error.response) {
-      ElMessage.error(error.message || '注册失败')
-    }
   } finally {
     loading.value = false
   }
 }
+
+onBeforeUnmount(clearTimer)
 </script>
 
 <template>

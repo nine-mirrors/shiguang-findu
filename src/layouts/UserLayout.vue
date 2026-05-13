@@ -146,6 +146,8 @@ const handleCommand = async command => {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
 .nav-links a {

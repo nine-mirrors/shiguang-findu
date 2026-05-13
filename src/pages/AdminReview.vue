@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref , watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import LineIcon from '@/components/LineIcon.vue'
@@ -9,13 +9,90 @@ const router = useRouter()
 
 const items = ref([])
 const claims = ref([])
-const filter = ref('pending')
+const itemPendingCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'pending').length)
+const itemApprovedCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'approved').length)
+const itemRejectedCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'rejected').length)
+
+const claimPendingCount = computed(() => claims.value.filter(claim => claim.status === 'pending').length)
+const claimHandoverCount = computed(() => claims.value.filter(claim => ['approved', 'handover_pending'].includes(claim.status)).length)
+const claimRejectedCount = computed(() => claims.value.filter(claim => claim.status === 'rejected').length)
+const claimCompletedCount = computed(() => claims.value.filter(claim => claim.status === 'completed').length)
+
+const filteredItems = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+
+  const source = itemFilter.value === 'all'
+    ? items.value
+    : items.value.filter(item => getAuditStatus(item) === itemFilter.value)
+
+  if (!kw) return source
+
+  return source.filter(item => {
+    return `${item.name || ''}${item.location || ''}${item.description || ''}`.toLowerCase().includes(kw)
+  })
+})
+
+const filteredClaims = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+
+  const source = claims.value.filter(claim => {
+    if (claimFilter.value === 'all') return true
+    if (claimFilter.value === 'handover') return ['approved', 'handover_pending'].includes(claim.status)
+
+    return claim.status === claimFilter.value
+  })
+
+  if (!kw) return source
+
+  return source.filter(claim => {
+    const item = getClaimItem(claim)
+
+    return `${item?.name || ''}${getClaimProofText(claim) || ''}${claim.phone || ''}`.toLowerCase().includes(kw)
+  })
+})
+
+const emptyText = computed(() => {
+  if (active.value === 'items') {
+    switch (itemFilter.value) {
+      case 'pending':
+        return '当前没有待审核的发布信息'
+      case 'approved':
+        return '当前没有已通过的发布信息'
+      case 'rejected':
+        return '当前没有已拒绝的发布信息'
+      default:
+        return '当前没有发布信息'
+    }
+  }
+
+  switch (claimFilter.value) {
+    case 'pending':
+      return '当前没有待核验的认领申请'
+    case 'handover':
+      return '当前没有待交接的认领申请'
+    case 'rejected':
+      return '当前没有已拒绝的认领申请'
+    case 'completed':
+      return '当前没有已完成的认领申请'
+    default:
+      return '当前没有认领申请'
+  }
+})
+const itemFilter = ref('pending')
+const claimFilter = ref('pending')
 const props = defineProps({
   tab: {
     type: String,
     default: 'items'
   }
 })
+
+watch(
+  () => props.tab,
+  value => {
+    active.value = value || 'items'
+  }
+)
 
 const active = ref(props.tab)
 const keyword = ref('')
@@ -208,29 +285,29 @@ onMounted(load)
     <el-tabs v-model="active" class="admin-tabs">
       <el-tab-pane label="内容审核" name="items">
         <div class="review-overview">
-          <div>
-            <b>{{ pendingCount }}</b>
+          <button type="button" :class="{ active: itemFilter === 'all' }" @click="itemFilter = 'all'">
+            <b>{{ items.length }}</b>
+            <span>全部信息</span>
+          </button>
+
+          <button type="button" :class="{ active: itemFilter === 'pending' }" @click="itemFilter = 'pending'">
+            <b>{{ itemPendingCount }}</b>
             <span>待审核信息</span>
-          </div>
+          </button>
 
-          <div>
-            <b>{{ claimPendingCount }}</b>
-            <span>待核验认领</span>
-          </div>
-
-          <div>
-            <b>{{ approvedCount }}</b>
+          <button type="button" :class="{ active: itemFilter === 'approved' }" @click="itemFilter = 'approved'">
+            <b>{{ itemApprovedCount }}</b>
             <span>已通过信息</span>
-          </div>
+          </button>
 
-          <div>
-            <b>{{ rejectedCount }}</b>
+          <button type="button" :class="{ active: itemFilter === 'rejected' }" @click="itemFilter = 'rejected'">
+            <b>{{ itemRejectedCount }}</b>
             <span>已拒绝信息</span>
-          </div>
+          </button>
         </div>
 
         <div class="toolbar">
-          <el-radio-group v-model="filter">
+          <el-radio-group v-model="itemFilter">
             <el-radio-button label="all">全部</el-radio-button>
             <el-radio-button label="pending">待审核</el-radio-button>
             <el-radio-button label="approved">已通过</el-radio-button>
@@ -241,8 +318,9 @@ onMounted(load)
         </div>
 
         <section class="review-list">
-          <div v-for="item in filtered" :key="item.id" class="review-row glass-card">
+          <div v-for="item in filteredItems" :key="item.id" class="review-row glass-card">
             <img v-if="getImage(item)" :src="getImage(item)" alt="物品图" />
+
             <div v-else class="placeholder">
               <LineIcon name="package" />
             </div>
@@ -251,13 +329,15 @@ onMounted(load)
               <div class="title">
                 <b>{{ item.name }}</b>
                 <el-tag :type="item.type === 'lost' ? 'primary' : 'success'">{{ item.type === 'lost' ? '失物' : '招领' }}</el-tag>
-                <el-tag>{{ auditText(getAuditStatus(item)) }}</el-tag>
+                <el-tag :type="auditType(getAuditStatus(item))">{{ auditText(getAuditStatus(item)) }}</el-tag>
                 <el-tag v-if="isValuable(item)" type="warning">贵重物品</el-tag>
               </div>
 
               <p>{{ item.description }}</p>
 
-              <div class="meta">{{ getCategoryName(item) }} · {{ item.location }} · {{ getHappenTime(item) }} · 发布人 #{{ getUserId(item) }}</div>
+              <div class="meta">
+                {{ getCategoryName(item) }} · {{ item.location }} · {{ getHappenTime(item) }} · 发布人 #{{ getUserId(item) }}
+              </div>
 
               <div class="privacy-line">联系方式仅后台核验可见，前台展示需脱敏。</div>
             </div>
@@ -268,12 +348,50 @@ onMounted(load)
               <el-button plain type="warning" @click="markDuplicate(item)">疑似重复</el-button>
             </div>
           </div>
+
+          <div v-if="!loading && !filteredItems.length" class="empty-review">
+            {{ emptyText }}
+          </div>
         </section>
       </el-tab-pane>
 
       <el-tab-pane label="认领核验" name="claims">
+        <div class="review-overview">
+          <button type="button" :class="{ active: claimFilter === 'all' }" @click="claimFilter = 'all'">
+            <b>{{ claims.length }}</b>
+            <span>全部申请</span>
+          </button>
+
+          <button type="button" :class="{ active: claimFilter === 'pending' }" @click="claimFilter = 'pending'">
+            <b>{{ claimPendingCount }}</b>
+            <span>待核验申请</span>
+          </button>
+
+          <button type="button" :class="{ active: claimFilter === 'handover' }" @click="claimFilter = 'handover'">
+            <b>{{ claimHandoverCount }}</b>
+            <span>待交接申请</span>
+          </button>
+
+          <button type="button" :class="{ active: claimFilter === 'rejected' }" @click="claimFilter = 'rejected'">
+            <b>{{ claimRejectedCount }}</b>
+            <span>已拒绝申请</span>
+          </button>
+        </div>
+
+        <div class="toolbar">
+          <el-radio-group v-model="claimFilter">
+            <el-radio-button label="all">全部</el-radio-button>
+            <el-radio-button label="pending">待核验</el-radio-button>
+            <el-radio-button label="handover">待交接</el-radio-button>
+            <el-radio-button label="rejected">已拒绝</el-radio-button>
+            <el-radio-button label="completed">已完成</el-radio-button>
+          </el-radio-group>
+
+          <el-input v-model="keyword" placeholder="搜索关联物品 / 证明内容 / 联系电话" clearable />
+        </div>
+
         <section class="review-list">
-          <div v-for="claim in claims" :key="claim.id" class="review-row glass-card claim-review">
+          <div v-for="claim in filteredClaims" :key="claim.id" class="review-row glass-card claim-review">
             <div class="score-ring" :class="getClaimScore(claim) >= 80 ? 'good' : getClaimScore(claim) >= 60 ? 'mid' : 'bad'">
               <b>{{ getClaimScore(claim) }}%</b>
               <span>匹配度</span>
@@ -288,9 +406,13 @@ onMounted(load)
 
               <p>{{ getClaimProofText(claim) }}</p>
 
-              <div class="meta">{{ getClaimMethod(claim) === 'delivery' ? '邮寄领取' : '线下领取' }} · {{ claim.phone }} · {{ getClaimCreatedAt(claim) }}</div>
+              <div class="meta">
+                {{ getClaimMethod(claim) === 'delivery' ? '邮寄领取' : '线下领取' }} · {{ claim.phone }} · {{ getClaimCreatedAt(claim) }}
+              </div>
 
-              <div v-if="getClaimDeliveryAddress(claim)" class="privacy-line">收件地址：已加密保存，仅核验通过后用于邮寄交接。</div>
+              <div v-if="getClaimDeliveryAddress(claim)" class="privacy-line">
+                收件地址：已加密保存，仅核验通过后用于邮寄交接。
+              </div>
             </div>
 
             <div class="actions">
@@ -298,6 +420,10 @@ onMounted(load)
               <el-button type="danger" plain :disabled="claim.status === 'rejected' || claim.status === 'completed'" @click="auditClaimRow(claim, 'rejected')">驳回</el-button>
               <el-button plain @click="goItem(claim)">查看关联信息</el-button>
             </div>
+          </div>
+
+          <div v-if="!loading && !filteredClaims.length" class="empty-review">
+            {{ emptyText }}
           </div>
         </section>
       </el-tab-pane>
@@ -313,7 +439,6 @@ onMounted(load)
     </el-dialog>
   </div>
 </template>
-
 <style scoped>
 .review-overview {
   display: grid;
@@ -322,11 +447,21 @@ onMounted(load)
   margin-bottom: 16px;
 }
 
-.review-overview div {
+.review-overview button {
   padding: 16px 18px;
+  border: 1px solid rgba(79, 124, 255, .08);
   border-radius: 22px;
   background: linear-gradient(135deg, rgba(79, 124, 255, .09), rgba(0, 184, 148, .05));
-  border: 1px solid rgba(79, 124, 255, .08);
+  text-align: left;
+  cursor: pointer;
+  transition: .22s ease;
+}
+
+.review-overview button:hover,
+.review-overview button.active {
+  transform: translateY(-2px);
+  border-color: rgba(79, 124, 255, .36);
+  box-shadow: 0 14px 32px rgba(31, 45, 92, .10);
 }
 
 .review-overview b {
@@ -453,6 +588,18 @@ onMounted(load)
 
 .score-ring.bad {
   background: conic-gradient(var(--danger) 0 45%, #eef2f7 0);
+}
+
+.empty-review {
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  padding: 30px;
+  border: 1px dashed rgba(79, 124, 255, .24);
+  border-radius: 22px;
+  background: rgba(248, 251, 255, .72);
+  color: var(--muted);
+  font-weight: 800;
 }
 
 @media (max-width: 880px) {

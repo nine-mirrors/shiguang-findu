@@ -12,7 +12,7 @@ export const useUserStore = defineStore('user', () => {
 
   const isLogin = computed(() => Boolean(token.value && user.value?.id))
   const isAdmin = computed(() => user.value?.role === 'admin')
-  const displayName = computed(() => user.value?.username || user.value?.email || '同学')
+  const displayName = computed(() => user.value?.username || user.value?.name || user.value?.email || '同学')
   const avatarText = computed(() => displayName.value.slice(0, 1))
 
   const normalizeAuthPayload = res => {
