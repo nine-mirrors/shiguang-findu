@@ -27,8 +27,8 @@ export const getAdminItemsApi = params => {
  */
 export const auditAdminItemApi = (id, data) => {
   return request.put(`/api/admin/lost-found/items/${id}/audit`, {
-    audit_status: data.auditStatus,
-    reject_reason: data.rejectReason || ''
+    action: data.auditStatus === 'approved' ? 'approve' : 'reject',
+    audit_reason: data.rejectReason || (data.auditStatus === 'approved' ? '审核通过' : '')
   })
 }
 

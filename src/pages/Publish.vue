@@ -271,8 +271,16 @@ onMounted(loadCategories)
           </div>
 
           <el-form-item :label="form.type === 'lost' ? '丢失时间' : '拾取时间'" prop="happenTime">
-            <el-date-picker v-model="form.happenTime" type="datetime" value-format="YYYY-MM-DD HH:mm" placeholder="选择时间" style="width: 100%" />
-          </el-form-item>
+                <el-date-picker 
+                  v-model="form.happenTime" 
+                  type="datetime" 
+                  value-format="YYYY-MM-DD HH:mm" 
+                  format="YYYY-MM-DD HH:mm"
+                  placeholder="选择时间" 
+                  style="width: 100%"
+                  :default-time="new Date(0, 0, 0, 0, 0, 0)"
+                />
+              </el-form-item>
 
           <el-form-item label="详细描述" prop="description">
             <el-input v-model.trim="form.description" type="textarea" :rows="5" maxlength="260" show-word-limit placeholder="颜色、品牌、特殊标记、可能遗失位置等。不要公开身份证、完整学号等敏感信息。" />

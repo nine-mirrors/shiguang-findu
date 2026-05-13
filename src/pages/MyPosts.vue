@@ -177,7 +177,7 @@ watch(() => route.query.tab, value => {
             </div>
 
             <div class="row-actions">
-              <el-button :disabled="getAuditStatus(item) !== 'approved'" @click="$router.push(`/items/${item.id}`)">查看</el-button>
+              <el-button @click="$router.push(`/items/${item.id}`)">查看</el-button>
               <el-button type="success" :disabled="['done', 'completed'].includes(getItemStatus(item))" @click="markDone(item)">标记完成</el-button>
               <el-button type="danger" plain @click="remove(item)">删除</el-button>
             </div>

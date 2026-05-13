@@ -21,9 +21,12 @@ const claimCompletedCount = computed(() => claims.value.filter(claim => claim.st
 const filteredItems = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
 
-  const source = itemFilter.value === 'all'
-    ? items.value
-    : items.value.filter(item => getAuditStatus(item) === itemFilter.value)
+  let source = []
+  if (itemFilter.value === 'all') {
+    source = items.value
+  } else {
+    source = items.value.filter(item => getAuditStatus(item) === itemFilter.value)
+  }
 
   if (!kw) return source
 
@@ -78,6 +81,7 @@ const emptyText = computed(() => {
       return '当前没有认领申请'
   }
 })
+
 const itemFilter = ref('pending')
 const claimFilter = ref('pending')
 const props = defineProps({
@@ -90,31 +94,21 @@ const props = defineProps({
 watch(
   () => props.tab,
   value => {
-    active.value = value || 'items'
+    if (value === 'claims') {
+      active.value = 'claims'
+    } else {
+      active.value = 'items'
+    }
   }
 )
 
-const active = ref(props.tab)
+const active = ref(props.tab === 'claims' ? 'claims' : 'items')
 const keyword = ref('')
 const loading = ref(false)
 
 const rejectDialog = ref(false)
 const rejectTarget = ref(null)
 const rejectReason = ref('')
-
-const pendingCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'pending').length)
-const approvedCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'approved').length)
-const rejectedCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'rejected').length)
-const claimPendingCount = computed(() => claims.value.filter(claim => claim.status === 'pending').length)
-
-const filtered = computed(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  const source = filter.value === 'all' ? items.value : items.value.filter(item => getAuditStatus(item) === filter.value)
-
-  if (!kw) return source
-
-  return source.filter(item => `${item.name}${item.location}${item.description}`.toLowerCase().includes(kw))
-})
 
 const normalizeList = res => {
   const payload = res?.data || res
@@ -148,6 +142,13 @@ const getUserId = item => item.userId || item.user_id || item.user?.id || '-'
 const getAuditStatus = item => item.auditStatus || item.audit_status || 'pending'
 const getRejectReason = item => item.rejectReason || item.reject_reason || ''
 const isValuable = item => Boolean(item.isValuable || item.is_valuable)
+
+const auditType = status => {
+  if (status === 'approved') return 'success'
+  if (status === 'rejected') return 'danger'
+
+  return 'warning'
+}
 
 const getClaimItem = claim => claim.item || claim.lost_found_item || claim.lostFoundItem || null
 const getClaimType = claim => claim.claimType || claim.claim_type || 'claim'
@@ -274,7 +275,10 @@ const auditClaimRow = async (claim, status) => {
 const goItem = claim => {
   const item = getClaimItem(claim)
 
-  if (item?.id) router.push(`/items/${item.id}`)
+  if (item?.id) {
+    const itemId = typeof item.id === 'object' ? item.id.id : item.id
+    router.push(`/items/${itemId}`)
+  }
 }
 
 onMounted(load)

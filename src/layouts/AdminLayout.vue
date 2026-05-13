@@ -27,13 +27,6 @@ const links = [
     desc: '发布内容审核、认领核验与补充材料'
   },
   {
-    label: '认领审核',
-    path: '/admin/claims',
-    icon: 'user-check',
-    tone: 'green',
-    desc: '认领申请核验、交接前审核与驳回处理'
-  },
-  {
     label: '滞留运营',
     path: '/admin/overdue-items',
     icon: 'package',
