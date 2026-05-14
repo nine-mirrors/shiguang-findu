@@ -80,29 +80,32 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const fetchProfile = async (force = false) => {
-    if (!token.value) return null
-    if (profileLoaded.value && !force) return user.value
-    if (profileLoading.value) return user.value
+  if (!token.value) return null
+  if (profileLoaded.value && !force) return user.value
+  if (profileLoading.value) return user.value
 
-    profileLoading.value = true
+  profileLoading.value = true
 
-    try {
-      const res = await getUserProfileApi()
-      const currentUser = normalizeUserPayload(res)
+  try {
+    const res = await getUserProfileApi()
+    const currentUser = normalizeUserPayload(res)
 
-      if (!currentUser?.id) {
-        throw new Error('用户资料接口返回数据格式不正确')
-      }
-
-      setUser(currentUser)
-      return currentUser
-    } catch (error) {
-      clearAuth()
-      throw error
-    } finally {
-      profileLoading.value = false
+    if (!currentUser?.id) {
+      throw new Error('用户资料接口返回数据格式不正确')
     }
+
+    setUser(currentUser)
+    return currentUser
+  } catch (error) {
+    // 只有明确的 401 错误才清除认证，其他网络错误保留登录状态
+    if (error.response?.status === 401) {
+      clearAuth()
+    }
+    throw error
+  } finally {
+    profileLoading.value = false
   }
+}
 
   const updateProfile = async form => {
     const res = await updateUserProfileApi(form)

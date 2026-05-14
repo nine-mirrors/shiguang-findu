@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { storage } from '@/utils/storage'
+import router from '@/router'
 
 const request = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
@@ -9,6 +10,10 @@ const request = axios.create({
     Accept: 'application/json'
   }
 })
+
+const isNetworkError = error => {
+  return !error.response || error.code === 'ECONNABORTED' || error.message.includes('Network Error') || error.message.includes('timeout')
+}
 
 /**
  * 公开接口白名单
@@ -57,7 +62,7 @@ const redirectToLogin = () => {
 
   if (window.location.pathname === '/login') return
 
-  window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`
+  router.push(`/login?redirect=${encodeURIComponent(currentPath)}`)
 }
 
 request.interceptors.request.use(
@@ -96,8 +101,11 @@ request.interceptors.response.use(
       ? validation[firstField]?.[0]
       : error.response?.data?.message || error.message || '请求失败'
 
-    if (!status) {
-      ElMessage.error('网络连接失败，请检查后端服务或网络状态')
+    if (isNetworkError(error)) {
+      if (window.location.pathname !== '/network-error') {
+        router.push('/network-error')
+      }
+      return Promise.reject(error)
     } else if (status === 401) {
       storage.remove('token')
       storage.remove('user')

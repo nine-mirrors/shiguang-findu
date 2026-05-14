@@ -40,6 +40,7 @@ const submit = async () => {
     await userStore.login(form)
     ElMessage.success('登录成功')
     router.push(getRedirectPath())
+  } catch {
   } finally {
     loading.value = false
   }
@@ -61,18 +62,18 @@ const submit = async () => {
 
         <div class="mini-board">
           <div>
-            <b>拾物</b>
-            <span>统一发布招领</span>
+            <b>便捷发布</b>
+            <span>快速发布失物招领</span>
           </div>
 
           <div>
-            <b>寻光</b>
-            <span>快速匹配线索</span>
+            <b>快速检索</b>
+            <span>多维度筛选查找</span>
           </div>
 
           <div>
-            <b>闭环</b>
-            <span>认领审核追踪</span>
+            <b>信息追踪</b>
+            <span>认领流程全程可查</span>
           </div>
         </div>
       </div>
@@ -97,6 +98,10 @@ const submit = async () => {
         <p class="switch">
           还没有账号？
           <router-link to="/register">立即注册</router-link>
+        </p>
+
+        <p class="help-link">
+          <router-link to="/guide">查看用户须知与平台规则</router-link>
         </p>
       </div>
     </section>
@@ -228,6 +233,20 @@ const submit = async () => {
 .switch a {
   color: var(--primary-strong);
   font-weight: 900;
+}
+
+.help-link {
+  text-align: center;
+  margin-top: 12px;
+}
+
+.help-link a {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.help-link a:hover {
+  color: var(--primary);
 }
 
 @media (max-width: 860px) {

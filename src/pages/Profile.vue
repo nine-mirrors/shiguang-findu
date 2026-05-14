@@ -94,6 +94,7 @@ async function loadProfile() {
     profile.value = normalizeProfile(res)
     syncEditForm()
     updateStoreUser(profile.value)
+  } catch {
   } finally {
     loading.value = false
   }
@@ -108,6 +109,7 @@ async function saveProfile() {
     syncEditForm()
     updateStoreUser(profile.value)
     ElMessage.success('个人信息已更新')
+  } catch {
   } finally {
     saving.value = false
   }

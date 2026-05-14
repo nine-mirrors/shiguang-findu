@@ -3,7 +3,9 @@ import { computed, onMounted, ref , watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import LineIcon from '@/components/LineIcon.vue'
+import ImageWithFallback from '@/components/ImageWithFallback.vue'
 import { getAdminItemsApi, auditAdminItemApi, getAdminClaimsApi, auditAdminClaimApi } from '@/api/admin'
+import { debounce } from '@/utils/debounce'
 
 const router = useRouter()
 
@@ -21,9 +23,12 @@ const claimCompletedCount = computed(() => claims.value.filter(claim => claim.st
 const filteredItems = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
 
-  const source = itemFilter.value === 'all'
-    ? items.value
-    : items.value.filter(item => getAuditStatus(item) === itemFilter.value)
+  let source = []
+  if (itemFilter.value === 'all') {
+    source = items.value
+  } else {
+    source = items.value.filter(item => getAuditStatus(item) === itemFilter.value)
+  }
 
   if (!kw) return source
 
@@ -78,6 +83,7 @@ const emptyText = computed(() => {
       return '当前没有认领申请'
   }
 })
+
 const itemFilter = ref('pending')
 const claimFilter = ref('pending')
 const props = defineProps({
@@ -90,31 +96,21 @@ const props = defineProps({
 watch(
   () => props.tab,
   value => {
-    active.value = value || 'items'
+    if (value === 'claims') {
+      active.value = 'claims'
+    } else {
+      active.value = 'items'
+    }
   }
 )
 
-const active = ref(props.tab)
+const active = ref(props.tab === 'claims' ? 'claims' : 'items')
 const keyword = ref('')
 const loading = ref(false)
 
 const rejectDialog = ref(false)
 const rejectTarget = ref(null)
 const rejectReason = ref('')
-
-const pendingCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'pending').length)
-const approvedCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'approved').length)
-const rejectedCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'rejected').length)
-const claimPendingCount = computed(() => claims.value.filter(claim => claim.status === 'pending').length)
-
-const filtered = computed(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  const source = filter.value === 'all' ? items.value : items.value.filter(item => getAuditStatus(item) === filter.value)
-
-  if (!kw) return source
-
-  return source.filter(item => `${item.name}${item.location}${item.description}`.toLowerCase().includes(kw))
-})
 
 const normalizeList = res => {
   const payload = res?.data || res
@@ -148,6 +144,13 @@ const getUserId = item => item.userId || item.user_id || item.user?.id || '-'
 const getAuditStatus = item => item.auditStatus || item.audit_status || 'pending'
 const getRejectReason = item => item.rejectReason || item.reject_reason || ''
 const isValuable = item => Boolean(item.isValuable || item.is_valuable)
+
+const auditType = status => {
+  if (status === 'approved') return 'success'
+  if (status === 'rejected') return 'danger'
+
+  return 'warning'
+}
 
 const getClaimItem = claim => claim.item || claim.lost_found_item || claim.lostFoundItem || null
 const getClaimType = claim => claim.claimType || claim.claim_type || 'claim'
@@ -217,19 +220,23 @@ const load = async () => {
 
     items.value = normalizeList(itemRes)
     claims.value = normalizeList(claimRes)
+  } catch {
   } finally {
     loading.value = false
   }
 }
 
 const audit = async (item, status) => {
-  await auditAdminItemApi(item.id, {
-    auditStatus: status,
-    rejectReason: status === 'rejected' ? '信息不完整或疑似重复' : ''
-  })
+  try {
+    await auditAdminItemApi(item.id, {
+      auditStatus: status,
+      rejectReason: status === 'rejected' ? '信息不完整或疑似重复' : ''
+    })
 
-  ElMessage.success(status === 'approved' ? '已通过' : '已拒绝')
-  load()
+    ElMessage.success(status === 'approved' ? '已通过' : '已拒绝')
+    load()
+  } catch {
+  }
 }
 
 const openReject = item => {
@@ -241,40 +248,52 @@ const openReject = item => {
 const confirmReject = async () => {
   if (!rejectReason.value.trim()) return ElMessage.warning('请填写拒绝原因')
 
-  await auditAdminItemApi(rejectTarget.value.id, {
-    auditStatus: 'rejected',
-    rejectReason: rejectReason.value
-  })
+  try {
+    await auditAdminItemApi(rejectTarget.value.id, {
+      auditStatus: 'rejected',
+      rejectReason: rejectReason.value
+    })
 
-  ElMessage.success('已拒绝并记录原因')
-  rejectDialog.value = false
-  load()
+    ElMessage.success('已拒绝并记录原因')
+    rejectDialog.value = false
+    load()
+  } catch {
+  }
 }
 
 const markDuplicate = async item => {
-  await auditAdminItemApi(item.id, {
-    auditStatus: 'rejected',
-    rejectReason: '疑似重复发布，请合并或补充说明后重新提交'
-  })
+  try {
+    await auditAdminItemApi(item.id, {
+      auditStatus: 'rejected',
+      rejectReason: '疑似重复发布，请合并或补充说明后重新提交'
+    })
 
-  ElMessage.success('已标记为疑似重复')
-  load()
+    ElMessage.success('已标记为疑似重复')
+    load()
+  } catch {
+  }
 }
 
 const auditClaimRow = async (claim, status) => {
-  await auditAdminClaimApi(claim.id, {
-    status,
-    remark: status === 'rejected' ? '证明细节不足或身份核验未通过' : '核验通过，进入交接流程'
-  })
+  try {
+    await auditAdminClaimApi(claim.id, {
+      status,
+      remark: status === 'rejected' ? '证明细节不足或身份核验未通过' : '核验通过，进入交接流程'
+    })
 
-  ElMessage.success(status === 'approved' ? '认领申请已通过，已进入运营处理的交接队列' : '认领申请已驳回')
-  load()
+    ElMessage.success(status === 'approved' ? '认领申请已通过，已进入运营处理的交接队列' : '认领申请已驳回')
+    load()
+  } catch {
+  }
 }
 
 const goItem = claim => {
   const item = getClaimItem(claim)
 
-  if (item?.id) router.push(`/items/${item.id}`)
+  if (item?.id) {
+    const itemId = typeof item.id === 'object' ? item.id.id : item.id
+    router.push(`/items/${itemId}`)
+  }
 }
 
 onMounted(load)
@@ -319,7 +338,7 @@ onMounted(load)
 
         <section class="review-list">
           <div v-for="item in filteredItems" :key="item.id" class="review-row glass-card">
-            <img v-if="getImage(item)" :src="getImage(item)" alt="物品图" />
+            <ImageWithFallback v-if="getImage(item)" :src="getImage(item)" :fallback-text="getCategoryName(item)" :alt="item.name" />
 
             <div v-else class="placeholder">
               <LineIcon name="package" />
@@ -609,6 +628,7 @@ onMounted(load)
 
   .toolbar {
     grid-template-columns: 1fr;
+    gap: 14px;
   }
 
   .review-row {
@@ -617,6 +637,23 @@ onMounted(load)
 
   .actions {
     justify-content: flex-start;
+  }
+
+  :deep(.el-radio-group) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  :deep(.el-radio-button) {
+    flex: 1;
+    min-width: calc(50% - 4px);
+  }
+
+  :deep(.el-radio-button__inner) {
+    width: 100%;
+    text-align: center;
+    border-radius: 6px;
   }
 }
 </style>

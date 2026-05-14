@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { getFavoritesApi } from '@/api/favorite'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadingState from '@/components/LoadingState.vue'
 
 const items = ref([])
 const loading = ref(false)
@@ -28,6 +29,8 @@ async function loadFavorites() {
     const list = normalizeFavorites(res)
 
     items.value = normalizeFavoriteItems(list)
+  } catch (err) {
+    // 错误已在 request.js 全局处理
   } finally {
     loading.value = false
   }
@@ -46,11 +49,13 @@ onMounted(loadFavorites)
       <p>用于后续查看和状态跟踪，收藏信息发生状态变化时可进入通知中心提醒。</p>
     </section>
 
-    <TransitionGroup v-if="items.length" name="list" tag="section" class="item-grid">
+    <LoadingState v-if="loading" text="正在加载收藏信息..." />
+
+    <TransitionGroup v-else-if="items.length" name="list" tag="section" class="item-grid">
       <ItemCard v-for="item in items" :key="item.id" :item="item" />
     </TransitionGroup>
 
-    <EmptyState v-else-if="!loading" title="暂无收藏" desc="在物品详情页点击收藏后，会在这里集中展示。" button-text="去失物大厅看看" @action="$router.push('/items')" />
+    <EmptyState v-else title="暂无收藏" desc="在物品详情页点击收藏后，会在这里集中展示。" button-text="去失物大厅看看" @action="$router.push('/items')" />
   </div>
 </template>
 

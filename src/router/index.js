@@ -33,6 +33,11 @@ const router = createRouter({
       meta: { guest: true }
     },
     {
+      path: '/network-error',
+      name: 'NetworkError',
+      component: () => import('@/pages/NetworkError.vue')
+    },
+    {
       path: '/',
       component: () => import('@/layouts/UserLayout.vue'),
       meta: { userArea: true },

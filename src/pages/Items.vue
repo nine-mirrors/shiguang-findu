@@ -3,16 +3,22 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadingState from '@/components/LoadingState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import { getCategoriesApi } from '@/api/category'
 import { getItemsApi } from '@/api/item'
+import { normalizeCategories as normalizeCategoriesUtil, normalizeItems as normalizeItemsUtil } from '@/utils/normalizers'
+import { debounce } from '@/utils/debounce'
 
 const route = useRoute()
 
 const loading = ref(false)
+const error = ref(null)
 const items = ref([])
 const categoryList = ref([])
 const page = ref(1)
-const pageSize = 6
+const pageSize = 12
+const total = ref(0)
 
 const query = reactive({
   keyword: '',
@@ -48,39 +54,30 @@ const categories = computed(() => {
   return categoryList.value.length ? categoryList.value : fallbackCategories
 })
 
-const pagedItems = computed(() => {
-  return items.value.slice((page.value - 1) * pageSize, page.value * pageSize)
-})
-
 function normalizeCategories(res) {
-  const list = res?.data || res || []
-
-  return list.map(item => {
-    if (typeof item === 'string') {
-      return {
-        id: item,
-        name: item
-      }
-    }
-
-    return {
-      id: item.id,
-      name: item.name
-    }
-  })
+  return normalizeCategoriesUtil(res)
 }
 
 function normalizeItems(res) {
   const payload = res?.data || res
-  const list = payload?.list || payload?.data || payload?.items || payload || []
 
-  return Array.isArray(list) ? list : []
+  if (payload?.total) {
+    total.value = payload.total
+  } else {
+    total.value = Array.isArray(payload) ? payload.length : 0
+  }
+
+  return normalizeItemsUtil(res)
 }
+
+const debouncedSearch = debounce(() => {
+  load()
+}, 300)
 
 function buildParams() {
   const params = {
-    page: 1,
-    page_size: 100
+    page: page.value,
+    page_size: pageSize
   }
 
   if (query.keyword) {
@@ -123,11 +120,14 @@ async function loadCategories() {
 
 async function load() {
   loading.value = true
+  error.value = null
   page.value = 1
 
   try {
     const res = await getItemsApi(buildParams())
     items.value = normalizeItems(res)
+  } catch (err) {
+    error.value = err
   } finally {
     loading.value = false
   }
@@ -154,8 +154,13 @@ watch(() => route.query, syncRoute)
 
 <template>
   <div class="items-page container">
-    <section class="page-head fade-up">
-      <span class="kicker">失物招领大厅</span>
+    <LoadingState v-if="loading" text="正在搜索失物信息..." />
+
+    <ErrorState v-else-if="error" title="加载失败" desc="网络连接异常，请稍后重试。" @retry="load" />
+
+    <template v-else>
+      <section class="page-head fade-up">
+        <span class="kicker">失物招领大厅</span>
 
       <h1>用筛选和匹配，缩短找回路径。</h1>
 
@@ -163,7 +168,7 @@ watch(() => route.query, syncRoute)
     </section>
 
     <section class="filter-card glass-card fade-up">
-      <el-input v-model="query.keyword" size="large" clearable placeholder="搜索物品名称、地点、描述关键词" @keyup.enter="load" />
+      <el-input v-model="query.keyword" size="large" clearable placeholder="搜索物品名称、地点、描述关键词" @input="debouncedSearch" @keyup.enter="load" />
 
       <el-select v-model="query.type" size="large" placeholder="类型" @change="load">
         <el-option label="全部类型" value="all" />
@@ -197,19 +202,20 @@ watch(() => route.query, syncRoute)
     </section>
 
     <div class="result-bar">
-      <b>共找到 {{ items.length }} 条信息</b>
-      <span>当前排序：发布时间倒序</span>
+      <b>共找到 {{ total }} 条信息</b>
+      <span>当前页：{{ page }} / {{ Math.ceil(total / pageSize) || 1 }}</span>
     </div>
 
     <EmptyState v-if="!loading && !items.length" title="暂时没有匹配的信息" desc="换一个关键词，或者直接发布一条新的失物/招领信息。" button-text="去发布" @action="$router.push('/publish')" />
 
     <TransitionGroup v-else name="list" tag="section" class="item-grid">
-      <ItemCard v-for="item in pagedItems" :key="item.id" :item="item" />
+      <ItemCard v-for="item in items" :key="item.id" :item="item" />
     </TransitionGroup>
 
-    <div v-if="items.length > pageSize" class="pagination-bar">
-      <el-pagination v-model:current-page="page" background layout="prev, pager, next" :page-size="pageSize" :total="items.length" />
+    <div v-if="total > pageSize" class="pagination-bar">
+      <el-pagination v-model:current-page="page" background layout="prev, pager, next, total" :page-size="pageSize" :total="total" @current-change="load" />
     </div>
+    </template>
   </div>
 </template>
 

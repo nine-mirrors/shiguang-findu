@@ -125,6 +125,8 @@ async function submit() {
     await submitVerificationApi(form)
     ElMessage.success('认证申请已提交')
     await loadVerification()
+  } catch (err) {
+    // 错误已在 request.js 全局处理
   } finally {
     submitting.value = false
   }

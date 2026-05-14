@@ -20,7 +20,8 @@ const form = reactive({
   email: '',
   emailCode: '',
   password: '',
-  password_confirmation: ''
+  password_confirmation: '',
+  agree: false
 })
 
 const rules = {
@@ -92,6 +93,10 @@ const sendCode = async () => {
 }
 
 const submit = async () => {
+  if (!form.agree) {
+    ElMessage.warning('请先阅读并同意用户须知与平台规则')
+    return
+  }
   await formRef.value.validate()
   loading.value = true
 
@@ -99,6 +104,7 @@ const submit = async () => {
     await userStore.register(form)
     ElMessage.success('注册成功')
     router.push('/home')
+  } catch {
   } finally {
     loading.value = false
   }
@@ -139,10 +145,17 @@ onBeforeUnmount(clearTimer)
         </el-form-item>
 
         <el-form-item label="确认密码" prop="password_confirmation">
-          <el-input v-model="form.password_confirmation" type="password" show-password size="large" placeholder="请再次输入密码" />
-        </el-form-item>
+              <el-input v-model="form.password_confirmation" type="password" show-password size="large" placeholder="请再次输入密码" />
+            </el-form-item>
 
-        <el-button type="primary" size="large" class="full-btn" :loading="loading" @click="submit">注册并进入平台</el-button>
+            <el-form-item>
+              <el-checkbox v-model="form.agree">
+                我已阅读并同意
+                <router-link to="/guide" class="rule-link">《用户须知与平台规则》</router-link>
+              </el-checkbox>
+            </el-form-item>
+
+            <el-button type="primary" size="large" class="full-btn" :loading="loading" :disabled="!form.agree" @click="submit">注册并进入平台</el-button>
 
         <p class="switch">
           已有账号？
@@ -215,6 +228,15 @@ onBeforeUnmount(clearTimer)
 .switch a {
   color: var(--primary-strong);
   font-weight: 900;
+}
+
+.rule-link {
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
+.rule-link:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 820px) {

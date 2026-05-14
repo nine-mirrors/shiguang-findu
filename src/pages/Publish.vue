@@ -7,6 +7,7 @@ import { createItemApi, uploadItemImagesApi } from '@/api/item'
 import ItemCard from '@/components/ItemCard.vue'
 import PhotoUploader from '@/components/PhotoUploader.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
+import ImageWithFallback from '@/components/ImageWithFallback.vue'
 
 const router = useRouter()
 
@@ -213,6 +214,7 @@ async function submit() {
 
     ElMessage.success('提交成功，已进入待审核状态')
     router.push('/my-posts')
+  } catch {
   } finally {
     loading.value = false
   }
@@ -271,8 +273,15 @@ onMounted(loadCategories)
           </div>
 
           <el-form-item :label="form.type === 'lost' ? '丢失时间' : '拾取时间'" prop="happenTime">
-            <el-date-picker v-model="form.happenTime" type="datetime" value-format="YYYY-MM-DD HH:mm" placeholder="选择时间" style="width: 100%" />
-          </el-form-item>
+                <el-date-picker 
+                  v-model="form.happenTime" 
+                  type="datetime" 
+                  value-format="YYYY-MM-DD HH:mm:ss" 
+                  format="YYYY-MM-DD HH:mm:ss"
+                  placeholder="选择时间" 
+                  style="width: 100%"
+                />
+              </el-form-item>
 
           <el-form-item label="详细描述" prop="description">
             <el-input v-model.trim="form.description" type="textarea" :rows="5" maxlength="260" show-word-limit placeholder="颜色、品牌、特殊标记、可能遗失位置等。不要公开身份证、完整学号等敏感信息。" />
@@ -321,7 +330,7 @@ onMounted(loadCategories)
 
   <div class="live-card">
     <div class="live-cover" :class="{ empty: !form.image }">
-      <img v-if="form.image" :src="form.image" alt="物品预览图" />
+      <ImageWithFallback v-if="form.image" :src="form.image" :fallback-text="previewItem.category" alt="物品预览图" />
 
       <div v-else class="cover-empty">
         <span>上传照片后展示预览</span>
@@ -533,6 +542,101 @@ onMounted(loadCategories)
 
   .two-col {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .publish-page {
+    padding: 20px 0;
+  }
+
+  .publish-grid {
+    gap: 20px;
+  }
+
+  .form-panel {
+    padding: 16px;
+  }
+
+  .publish-header h1 {
+    font-size: 24px;
+  }
+
+  .type-tabs {
+    gap: 8px;
+  }
+
+  .type-tabs .el-button {
+    flex: 1;
+    padding: 12px 8px;
+  }
+
+  .submit-line {
+    flex-direction: column;
+  }
+
+  .submit-line .el-button {
+    width: 100%;
+  }
+
+  .preview-panel {
+    padding: 16px;
+  }
+
+  .live-cover {
+    height: 160px;
+  }
+
+  .live-body {
+    padding: 14px;
+  }
+
+  .live-head b {
+    font-size: 16px;
+  }
+
+  .live-body p {
+    font-size: 13px;
+    margin: 8px 0 12px;
+  }
+
+  .live-meta {
+    font-size: 12px;
+  }
+
+  .assist-box {
+    padding: 14px;
+    font-size: 13px;
+  }
+
+  :deep(.el-form-item__label) {
+    font-size: 14px;
+  }
+
+  :deep(.el-input__inner) {
+    font-size: 14px;
+  }
+
+  :deep(.el-textarea__inner) {
+    font-size: 14px;
+  }
+
+  :deep(.el-radio-group) {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  :deep(.el-radio-button) {
+    width: 100%;
+  }
+
+  :deep(.el-radio-button__inner) {
+    width: 100%;
+    display: block;
+    text-align: center;
+    border-radius: 8px;
   }
 }
 </style>

@@ -1,8 +1,12 @@
 <script setup>
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getNotificationsApi, readNotificationApi, readAllNotificationsApi } from '@/api/notification'
 import LineIcon from '@/components/LineIcon.vue'
+import LoadingState from '@/components/LoadingState.vue'
+
+const router = useRouter()
 
 const list = ref([])
 const loading = ref(false)
@@ -76,6 +80,8 @@ async function load() {
   try {
     const res = await getNotificationsApi()
     list.value = normalizeNotifications(res)
+  } catch (err) {
+    // 错误已在 request.js 全局处理
   } finally {
     loading.value = false
   }
@@ -83,11 +89,29 @@ async function load() {
 
 async function read(item) {
   if (!isUnread(item)) {
+    handleNotificationClick(item)
     return
   }
 
   await readNotificationApi(item.id)
   await load()
+  handleNotificationClick(item)
+}
+
+function handleNotificationClick(item) {
+  const relatedId = item.related_id || item.item_id || item.target_id
+
+  if (item.type === 'match' && relatedId) {
+    router.push(`/items/${relatedId}`)
+  } else if (item.type === 'audit' && relatedId) {
+    router.push(`/items/${relatedId}`)
+  } else if (item.type === 'claim' && relatedId) {
+    router.push(`/items/${relatedId}`)
+  } else if (item.type === 'announcement') {
+    if (relatedId) {
+      router.push(`/items/${relatedId}`)
+    }
+  }
 }
 
 async function readAll() {
@@ -114,14 +138,16 @@ onMounted(load)
       <p>第一优先级功能：站内通知 + 邮箱推送闭环。邮箱发送由 Laravel 后端完成，前端负责展示和状态读取。</p>
     </section>
 
-    <section class="notify-layout">
+    <LoadingState v-if="loading" text="正在加载通知..." />
+
+    <section v-else class="notify-layout">
       <div class="notify-list glass-card">
         <div class="notify-toolbar">
           <b>我的通知</b>
-          <el-button size="small" :loading="loading" @click="readAll">全部已读</el-button>
+          <el-button size="small" @click="readAll">全部已读</el-button>
         </div>
 
-        <div v-if="!loading && !list.length" class="empty-text">
+        <div v-if="!list.length" class="empty-text">
           暂无通知
         </div>
 
@@ -144,14 +170,12 @@ onMounted(load)
       <aside class="glass-card mail-card">
         <LineIcon name="file" tone="blue" />
 
-        <h2>邮箱推送策略</h2>
-
-        <p>注册验证码、发布审核结果、认领状态变化、新匹配信息、滞留提醒会进入邮件队列。邮件只做提醒，敏感信息需回平台查看。</p>
+        <h2>消息通知说明</h2>
 
         <ul>
-          <li>不在邮件中展示完整手机号、地址、证件号。</li>
-          <li>Laravel 后端建议使用 Notification + Queue。</li>
-          <li>站内消息与邮箱消息保持同一业务事件源。</li>
+          <li>站内消息会实时推送审核结果、认领状态等重要通知</li>
+          <li>重要消息会同步发送至您的注册邮箱</li>
+          <li>邮件仅作为提醒，详细内容请登录平台查看</li>
         </ul>
       </aside>
     </section>
