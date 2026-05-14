@@ -3,12 +3,15 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadingState from '@/components/LoadingState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import { getCategoriesApi } from '@/api/category'
 import { getItemsApi } from '@/api/item'
 
 const route = useRoute()
 
 const loading = ref(false)
+const error = ref(null)
 const items = ref([])
 const categoryList = ref([])
 const page = ref(1)
@@ -127,11 +130,14 @@ async function loadCategories() {
 
 async function load() {
   loading.value = true
+  error.value = null
   page.value = 1
 
   try {
     const res = await getItemsApi(buildParams())
     items.value = normalizeItems(res)
+  } catch (err) {
+    error.value = err
   } finally {
     loading.value = false
   }
@@ -158,8 +164,13 @@ watch(() => route.query, syncRoute)
 
 <template>
   <div class="items-page container">
-    <section class="page-head fade-up">
-      <span class="kicker">失物招领大厅</span>
+    <LoadingState v-if="loading" text="正在搜索失物信息..." />
+
+    <ErrorState v-else-if="error" title="加载失败" desc="网络连接异常，请稍后重试。" @retry="load" />
+
+    <template v-else>
+      <section class="page-head fade-up">
+        <span class="kicker">失物招领大厅</span>
 
       <h1>用筛选和匹配，缩短找回路径。</h1>
 
@@ -214,6 +225,7 @@ watch(() => route.query, syncRoute)
     <div v-if="total > pageSize" class="pagination-bar">
       <el-pagination v-model:current-page="page" background layout="prev, pager, next, total" :page-size="pageSize" :total="total" @current-change="load" />
     </div>
+    </template>
   </div>
 </template>
 

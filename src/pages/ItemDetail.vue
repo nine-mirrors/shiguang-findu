@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getItemDetailApi, getItemsApi } from '@/api/item'
 import { getFavoritesApi, addFavoriteApi, removeFavoriteApi } from '@/api/favorite'
@@ -10,13 +10,18 @@ import StatusTimeline from '@/components/StatusTimeline.vue'
 import ItemCard from '@/components/ItemCard.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
 import ClaimComparePanel from '@/components/ClaimComparePanel.vue'
+import LoadingState from '@/components/LoadingState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 
 const item = ref(null)
 const similar = ref([])
 const favorite = ref(false)
+const loading = ref(true)
+const error = ref(null)
 
 const itemType = computed(() => item.value?.type || 'lost')
 
@@ -128,19 +133,32 @@ async function loadFavorite() {
 }
 
 async function load() {
-  const res = await getItemDetailApi(route.params.id)
+  loading.value = true
+  error.value = null
 
-  item.value = normalizeItem(res)
+  try {
+    const res = await getItemDetailApi(route.params.id)
 
-  if (!item.value) {
-    ElMessage.error('未找到该物品信息')
-    return
+    item.value = normalizeItem(res)
+
+    if (!item.value) {
+      router.push('/404')
+      return
+    }
+
+    await Promise.all([
+      loadSimilar(),
+      loadFavorite()
+    ])
+  } catch (err) {
+    if (err.response?.status === 404) {
+      router.push('/404')
+    } else {
+      error.value = err
+    }
+  } finally {
+    loading.value = false
   }
-
-  await Promise.all([
-    loadSimilar(),
-    loadFavorite()
-  ])
 }
 
 async function toggleFav() {
@@ -166,14 +184,19 @@ watch(() => route.params.id, load)
 </script>
 
 <template>
-  <div class="detail-page container" v-if="item">
-    <section class="detail-hero fade-up">
-      <div class="detail-visual" :class="itemType">
-        <img v-if="itemImage" :src="itemImage" alt="物品照片" />
-        <div v-else class="fallback-large">
-          <span>{{ itemCategory }}</span>
+  <div class="detail-page container">
+    <LoadingState v-if="loading" text="正在加载物品详情..." />
+
+    <ErrorState v-else-if="error" title="加载失败" desc="网络连接异常，请稍后重试。" @retry="load" />
+
+    <template v-else-if="item">
+      <section class="detail-hero fade-up">
+        <div class="detail-visual" :class="itemType">
+          <img v-if="itemImage" :src="itemImage" alt="物品照片" />
+          <div v-else class="fallback-large">
+            <span>{{ itemCategory }}</span>
+          </div>
         </div>
-      </div>
 
       <div class="detail-copy">
         <div class="tag-line">
@@ -250,6 +273,7 @@ watch(() => route.params.id, load)
         <ItemCard v-for="similarItem in similar" :key="similarItem.id" :item="similarItem" />
       </TransitionGroup>
     </section>
+    </template>
   </div>
 </template>
 

@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import StatCard from '@/components/StatCard.vue'
 import ItemCard from '@/components/ItemCard.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import LoadingState from '@/components/LoadingState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import { getCategoriesApi } from '@/api/category'
 import { getItemsApi } from '@/api/item'
 
@@ -12,6 +14,8 @@ const router = useRouter()
 const keyword = ref('')
 const items = ref([])
 const categoryList = ref([])
+const loading = ref(true)
+const error = ref(null)
 
 const dashboard = ref({
   total: 0,
@@ -104,13 +108,22 @@ async function loadCategories() {
 }
 
 async function loadHomeData() {
-  const res = await getItemsApi({
-    page: 1,
-    page_size: 6
-  })
+  loading.value = true
+  error.value = null
 
-  items.value = normalizeItems(res)
-  dashboard.value = buildDashboard(items.value)
+  try {
+    const res = await getItemsApi({
+      page: 1,
+      page_size: 6
+    })
+
+    items.value = normalizeItems(res)
+    dashboard.value = buildDashboard(items.value)
+  } catch (err) {
+    error.value = err
+  } finally {
+    loading.value = false
+  }
 }
 
 const buildDashboard = list => {
@@ -150,6 +163,13 @@ const buildDashboard = list => {
   }
 }
 
+async function retry() {
+  await Promise.all([
+    loadCategories(),
+    loadHomeData()
+  ])
+}
+
 onMounted(async () => {
   await Promise.all([
     loadCategories(),
@@ -160,9 +180,14 @@ onMounted(async () => {
 
 <template>
   <div class="home-page">
-    <section class="hero container">
-      <div class="hero-copy fade-up">
-        <span class="kicker">拾光 FindU · 校园智能失物协寻平台</span>
+    <LoadingState v-if="loading" text="正在加载首页数据..." />
+
+    <ErrorState v-else-if="error" title="加载失败" desc="网络连接异常，请稍后重试。" @retry="retry" />
+
+    <template v-else>
+      <section class="hero container">
+        <div class="hero-copy fade-up">
+          <span class="kicker">拾光 FindU · 校园智能失物协寻平台</span>
 
         <h1>拾起遗失之物，找回校园微光。</h1>
 
@@ -239,6 +264,7 @@ onMounted(async () => {
         <ItemCard v-for="item in latest" :key="item.id" :item="item" />
       </TransitionGroup>
     </section>
+    </template>
   </div>
 </template>
 
