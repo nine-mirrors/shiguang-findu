@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getCategoriesApi } from '@/api/category'
 import { createItemApi, uploadItemImagesApi } from '@/api/item'
-import ItemCard from '@/components/ItemCard.vue'
 import PhotoUploader from '@/components/PhotoUploader.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
 
@@ -56,6 +55,10 @@ const categories = computed(() => {
   return categoryList.value.length ? categoryList.value : fallbackCategories
 })
 
+const isUsingFallbackCategories = computed(() => {
+  return !categoryList.value.length
+})
+
 const rules = {
   type: [
     { required: true, message: '请选择信息类型', trigger: 'change' }
@@ -85,18 +88,20 @@ const rules = {
   ]
 }
 
+const disabledFutureTime = date => {
+  return date.getTime() > Date.now()
+}
+
+const isFutureTime = value => {
+  if (!value) return false
+
+  return new Date(value.replace(/-/g, '/')).getTime() > Date.now()
+}
+
 const activeStep = computed(() => {
-  if (!form.type) {
-    return 0
-  }
-
-  if (!form.image) {
-    return 1
-  }
-
-  if (form.name && form.categoryId && form.location && form.happenTime) {
-    return 3
-  }
+  if (!form.type) return 0
+  if (!form.image) return 1
+  if (form.name && form.categoryId && form.location && form.happenTime) return 3
 
   return 2
 })
@@ -122,6 +127,10 @@ const previewItem = computed(() => {
 })
 
 const assistText = computed(() => {
+  if (isUsingFallbackCategories.value) {
+    return '分类接口暂未加载成功。请等待分类加载后再提交，避免分类编号异常。'
+  }
+
   if (!form.image) {
     return '建议上传清晰照片。真实平台中照片能显著降低误认成本，也方便后续做图片比对。'
   }
@@ -137,7 +146,7 @@ const assistText = computed(() => {
   return '信息完整度较高。提交后进入待审核，管理员通过后展示在失物大厅。'
 })
 
-function normalizeCategories(res) {
+const normalizeCategories = res => {
   const list = res?.data || res || []
 
   return list.map(item => {
@@ -155,19 +164,23 @@ function normalizeCategories(res) {
   })
 }
 
-function normalizeCreatedItem(res) {
+const normalizeCreatedItem = res => {
   const data = res?.data || res || null
 
   return data?.item || data
 }
 
-function handleCategoryChange(value) {
+const handleTypeChange = type => {
+  form.type = type
+}
+
+const handleCategoryChange = value => {
   const currentCategory = categories.value.find(item => String(item.id) === String(value))
 
   form.categoryName = currentCategory?.name || ''
 }
 
-function reset() {
+const reset = () => {
   Object.assign(form, {
     type: 'lost',
     name: '',
@@ -186,11 +199,11 @@ function reset() {
   })
 }
 
-function getImageList() {
+const getImageList = () => {
   return form.imageFile ? [form.imageFile] : []
 }
 
-async function loadCategories() {
+const loadCategories = async () => {
   try {
     const res = await getCategoriesApi()
     categoryList.value = normalizeCategories(res)
@@ -199,8 +212,19 @@ async function loadCategories() {
   }
 }
 
-async function submit() {
+const submit = async () => {
   await formRef.value.validate()
+
+  if (isUsingFallbackCategories.value) {
+    ElMessage.warning('分类接口暂未加载成功，请稍后重试')
+    return
+  }
+
+  if (isFutureTime(form.happenTime)) {
+    ElMessage.warning(`${form.type === 'lost' ? '丢失时间' : '拾取时间'}不能晚于当前时间`)
+    return
+  }
+
   loading.value = true
 
   try {
@@ -208,7 +232,13 @@ async function submit() {
     const createdItem = normalizeCreatedItem(res)
 
     if (createdItem?.id && getImageList().length) {
-      await uploadItemImagesApi(createdItem.id, getImageList())
+      try {
+        await uploadItemImagesApi(createdItem.id, getImageList())
+      } catch {
+        ElMessage.warning('信息已提交，但图片上传失败，可稍后在我的发布中补充')
+        router.push('/my-posts')
+        return
+      }
     }
 
     ElMessage.success('提交成功，已进入待审核状态')
@@ -242,10 +272,27 @@ onMounted(loadCategories)
 
         <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="publish-form">
           <el-form-item label="信息类型" prop="type">
-            <el-radio-group v-model="form.type">
-              <el-radio-button label="lost">我丢了东西</el-radio-button>
-              <el-radio-button label="found">我捡到东西</el-radio-button>
-            </el-radio-group>
+            <div class="type-card-group">
+              <button
+                type="button"
+                class="type-card"
+                :class="{ active: form.type === 'lost' }"
+                @click="handleTypeChange('lost')"
+              >
+                <b>我丢了东西</b>
+                <span>发布失物信息，等待拾得人或管理员提供线索。</span>
+              </button>
+
+              <button
+                type="button"
+                class="type-card"
+                :class="{ active: form.type === 'found' }"
+                @click="handleTypeChange('found')"
+              >
+                <b>我捡到东西</b>
+                <span>发布招领信息，等待失主提交认领证明。</span>
+              </button>
+            </div>
           </el-form-item>
 
           <el-form-item label="物品照片（强烈建议上传）">
@@ -259,7 +306,12 @@ onMounted(loadCategories)
           <div class="two-col">
             <el-form-item label="物品分类" prop="categoryId">
               <el-select v-model="form.categoryId" placeholder="请选择" @change="handleCategoryChange">
-                <el-option v-for="category in categories" :key="category.id || category.name" :label="category.name" :value="category.id" />
+                <el-option
+                  v-for="category in categories"
+                  :key="category.id || category.name"
+                  :label="category.name"
+                  :value="category.id"
+                />
               </el-select>
             </el-form-item>
 
@@ -271,15 +323,34 @@ onMounted(loadCategories)
           </div>
 
           <el-form-item :label="form.type === 'lost' ? '丢失时间' : '拾取时间'" prop="happenTime">
-            <el-date-picker v-model="form.happenTime" type="datetime" value-format="YYYY-MM-DD HH:mm" placeholder="选择时间" style="width: 100%" />
+            <el-date-picker
+              v-model="form.happenTime"
+              type="datetime"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              placeholder="选择时间"
+              :disabled-date="disabledFutureTime"
+              style="width: 100%"
+            />
           </el-form-item>
 
           <el-form-item label="详细描述" prop="description">
-            <el-input v-model.trim="form.description" type="textarea" :rows="5" maxlength="260" show-word-limit placeholder="颜色、品牌、特殊标记、可能遗失位置等。不要公开身份证、完整学号等敏感信息。" />
+            <el-input
+              v-model.trim="form.description"
+              type="textarea"
+              :rows="5"
+              maxlength="260"
+              show-word-limit
+              placeholder="颜色、品牌、特殊标记、可能遗失位置等。不要公开身份证、完整学号等敏感信息。"
+            />
           </el-form-item>
 
           <el-form-item v-if="form.type === 'found'" label="认领核验提示（可选，不公开展示）">
-            <el-input v-model.trim="form.claimHint" maxlength="80" show-word-limit placeholder="例如：请说明挂件样式、卡套颜色、U盘内文件夹名称" />
+            <el-input
+              v-model.trim="form.claimHint"
+              maxlength="80"
+              show-word-limit
+              placeholder="例如：请说明挂件样式、卡套颜色、U盘内文件夹名称"
+            />
           </el-form-item>
 
           <div class="two-col">
@@ -314,50 +385,51 @@ onMounted(loadCategories)
       </div>
 
       <aside class="preview-panel fade-up">
-  <div class="preview-header">
-    <b>实时预览</b>
-    <span>发布后的卡片效果</span>
-  </div>
+        <div class="preview-header">
+          <b>实时预览</b>
+          <span>发布后的卡片效果</span>
+        </div>
 
-  <div class="live-card">
-    <div class="live-cover" :class="{ empty: !form.image }">
-      <img v-if="form.image" :src="form.image" alt="物品预览图" />
+        <div class="live-card">
+          <div class="live-cover" :class="{ empty: !form.image }">
+            <img v-if="form.image" :src="form.image" alt="物品预览图" />
 
-      <div v-else class="cover-empty">
-        <span>上传照片后展示预览</span>
-      </div>
-    </div>
+            <div v-else class="cover-empty">
+              <span>上传照片后展示预览</span>
+            </div>
+          </div>
 
-    <div class="live-body">
-      <div class="live-head">
-        <b>{{ previewItem.name }}</b>
-        <el-tag :type="form.type === 'lost' ? 'warning' : 'success'">
-          {{ form.type === 'lost' ? '失物' : '招领' }}
-        </el-tag>
-      </div>
+          <div class="live-body">
+            <div class="live-head">
+              <b>{{ previewItem.name }}</b>
 
-      <p>{{ previewItem.description }}</p>
+              <el-tag :type="form.type === 'lost' ? 'warning' : 'success'">
+                {{ form.type === 'lost' ? '失物' : '招领' }}
+              </el-tag>
+            </div>
 
-      <div class="live-meta">
-        <span>{{ previewItem.category }}</span>
-        <span>{{ previewItem.location }}</span>
-        <span>{{ previewItem.happenTime }}</span>
-      </div>
+            <p>{{ previewItem.description }}</p>
 
-      <div class="live-footer">
-        <span>{{ previewItem.auditStatus === 'pending' ? '待审核' : '已展示' }}</span>
-        <span>{{ form.image ? '有照片可比对' : '暂无照片' }}</span>
-      </div>
-    </div>
-  </div>
+            <div class="live-meta">
+              <span>{{ previewItem.category }}</span>
+              <span>{{ previewItem.location }}</span>
+              <span>{{ previewItem.happenTime }}</span>
+            </div>
 
-  <RetentionBadge v-if="previewItem.type === 'found'" :item="previewItem" class="preview-retention" />
+            <div class="live-footer">
+              <span>{{ previewItem.auditStatus === 'pending' ? '待审核' : '已展示' }}</span>
+              <span>{{ form.image ? '有照片可比对' : '暂无照片' }}</span>
+            </div>
+          </div>
+        </div>
 
-  <div class="assist-box">
-    <b>智能填写建议</b>
-    <p>{{ assistText }}</p>
-  </div>
-</aside>
+        <RetentionBadge v-if="previewItem.type === 'found'" :item="previewItem" class="preview-retention" />
+
+        <div class="assist-box">
+          <b>智能填写建议</b>
+          <p>{{ assistText }}</p>
+        </div>
+      </aside>
     </section>
   </div>
 </template>
@@ -397,6 +469,58 @@ onMounted(loadCategories)
 
 .publish-form {
   margin-top: 24px;
+}
+
+.type-card-group {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 360px));
+  justify-content: center;
+  gap: 20px;
+}
+
+.type-card {
+  width: 100%;
+  min-height: 132px;
+  padding: 22px 24px;
+  border: 1px solid rgba(79, 124, 255, .14);
+  border-radius: 24px;
+  background: rgba(248, 251, 255, .82);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  cursor: pointer;
+  appearance: none;
+  transition: .22s ease;
+}
+
+.type-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(79, 124, 255, .34);
+  box-shadow: 0 14px 32px rgba(31, 45, 92, .08);
+}
+
+.type-card.active {
+  border-color: rgba(79, 124, 255, .55);
+  background: linear-gradient(135deg, rgba(79, 124, 255, .14), rgba(0, 184, 148, .08));
+  box-shadow: 0 16px 38px rgba(79, 124, 255, .14);
+}
+
+.type-card b {
+  display: block;
+  margin-bottom: 0;
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.type-card span {
+  max-width: 260px;
+  color: var(--muted);
+  line-height: 1.6;
+  font-size: 14px;
 }
 
 .two-col {
@@ -531,6 +655,7 @@ onMounted(loadCategories)
     position: static;
   }
 
+  .type-card-group,
   .two-col {
     grid-template-columns: 1fr;
   }
