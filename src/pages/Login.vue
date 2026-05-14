@@ -62,18 +62,18 @@ const submit = async () => {
 
         <div class="mini-board">
           <div>
-            <b>拾物</b>
-            <span>统一发布招领</span>
+            <b>便捷发布</b>
+            <span>快速发布失物招领</span>
           </div>
 
           <div>
-            <b>寻光</b>
-            <span>快速匹配线索</span>
+            <b>精准匹配</b>
+            <span>智能检索相关线索</span>
           </div>
 
           <div>
-            <b>闭环</b>
-            <span>认领审核追踪</span>
+            <b>安全保障</b>
+            <span>实名认证更放心</span>
           </div>
         </div>
       </div>
