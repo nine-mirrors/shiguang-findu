@@ -620,5 +620,16 @@ onMounted(loadCategories)
   :deep(.el-textarea__inner) {
     font-size: 14px;
   }
+
+  :deep(.el-radio-group) {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  :deep(.el-radio-button) {
+    width: 100%;
+    justify-content: center;
+  }
 }
 </style>

@@ -628,6 +628,7 @@ onMounted(load)
 
   .toolbar {
     grid-template-columns: 1fr;
+    gap: 14px;
   }
 
   .review-row {
@@ -636,6 +637,17 @@ onMounted(load)
 
   .actions {
     justify-content: flex-start;
+  }
+
+  :deep(.el-radio-group) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  :deep(.el-radio-button) {
+    flex: 1;
+    min-width: calc(50% - 4px);
   }
 }
 </style>
