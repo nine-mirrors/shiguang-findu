@@ -7,6 +7,8 @@ import LoadingState from '@/components/LoadingState.vue'
 import ErrorState from '@/components/ErrorState.vue'
 import { getCategoriesApi } from '@/api/category'
 import { getItemsApi } from '@/api/item'
+import { normalizeCategories as normalizeCategoriesUtil, normalizeItems as normalizeItemsUtil } from '@/utils/normalizers'
+import { debounce } from '@/utils/debounce'
 
 const route = useRoute()
 
@@ -53,36 +55,24 @@ const categories = computed(() => {
 })
 
 function normalizeCategories(res) {
-  const list = res?.data || res || []
-
-  return list.map(item => {
-    if (typeof item === 'string') {
-      return {
-        id: item,
-        name: item
-      }
-    }
-
-    return {
-      id: item.id,
-      name: item.name
-    }
-  })
+  return normalizeCategoriesUtil(res)
 }
 
 function normalizeItems(res) {
   const payload = res?.data || res
-  
+
   if (payload?.total) {
     total.value = payload.total
   } else {
     total.value = Array.isArray(payload) ? payload.length : 0
   }
-  
-  const list = payload?.list || payload?.data || payload?.items || payload || []
 
-  return Array.isArray(list) ? list : []
+  return normalizeItemsUtil(res)
 }
+
+const debouncedSearch = debounce(() => {
+  load()
+}, 300)
 
 function buildParams() {
   const params = {
@@ -178,7 +168,7 @@ watch(() => route.query, syncRoute)
     </section>
 
     <section class="filter-card glass-card fade-up">
-      <el-input v-model="query.keyword" size="large" clearable placeholder="搜索物品名称、地点、描述关键词" @keyup.enter="load" />
+      <el-input v-model="query.keyword" size="large" clearable placeholder="搜索物品名称、地点、描述关键词" @input="debouncedSearch" @keyup.enter="load" />
 
       <el-select v-model="query.type" size="large" placeholder="类型" @change="load">
         <el-option label="全部类型" value="all" />

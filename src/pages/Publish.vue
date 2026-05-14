@@ -7,6 +7,7 @@ import { createItemApi, uploadItemImagesApi } from '@/api/item'
 import ItemCard from '@/components/ItemCard.vue'
 import PhotoUploader from '@/components/PhotoUploader.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
+import ImageWithFallback from '@/components/ImageWithFallback.vue'
 
 const router = useRouter()
 
@@ -329,7 +330,7 @@ onMounted(loadCategories)
 
   <div class="live-card">
     <div class="live-cover" :class="{ empty: !form.image }">
-      <img v-if="form.image" :src="form.image" alt="物品预览图" />
+      <ImageWithFallback v-if="form.image" :src="form.image" :fallback-text="previewItem.category" alt="物品预览图" />
 
       <div v-else class="cover-empty">
         <span>上传照片后展示预览</span>

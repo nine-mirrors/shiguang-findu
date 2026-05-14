@@ -3,7 +3,9 @@ import { computed, onMounted, ref , watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import LineIcon from '@/components/LineIcon.vue'
+import ImageWithFallback from '@/components/ImageWithFallback.vue'
 import { getAdminItemsApi, auditAdminItemApi, getAdminClaimsApi, auditAdminClaimApi } from '@/api/admin'
+import { debounce } from '@/utils/debounce'
 
 const router = useRouter()
 
@@ -336,7 +338,7 @@ onMounted(load)
 
         <section class="review-list">
           <div v-for="item in filteredItems" :key="item.id" class="review-row glass-card">
-            <img v-if="getImage(item)" :src="getImage(item)" alt="物品图" />
+            <ImageWithFallback v-if="getImage(item)" :src="getImage(item)" :fallback-text="getCategoryName(item)" :alt="item.name" />
 
             <div v-else class="placeholder">
               <LineIcon name="package" />

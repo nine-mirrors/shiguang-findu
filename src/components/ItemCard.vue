@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import ImageWithFallback from './ImageWithFallback.vue'
 
 const props = defineProps({
   item: {
@@ -89,7 +90,13 @@ function goDetail() {
 <template>
   <article class="item-card" @click="goDetail">
     <div class="visual" :class="itemType">
-      <img v-if="itemImage" :src="itemImage" alt="物品照片" />
+      <ImageWithFallback
+        v-if="itemImage"
+        :src="itemImage"
+        :fallback-text="itemCategory"
+        :alt="item.name"
+        class="card-image"
+      />
       <div v-else class="fallback-icon" :class="categoryClass">
         <span></span>
       </div>
@@ -155,7 +162,8 @@ function goDetail() {
   background: radial-gradient(circle at 28% 20%, rgba(255, 255, 255, .82), transparent 30%), linear-gradient(135deg, rgba(79, 124, 255, .24), rgba(108, 99, 255, .16));
 }
 
-.visual img {
+.visual img,
+.visual .image-container {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -163,7 +171,8 @@ function goDetail() {
   transition: .35s ease;
 }
 
-.item-card:hover .visual img {
+.item-card:hover .visual img,
+.item-card:hover .visual .image-container {
   transform: scale(1.05);
 }
 
