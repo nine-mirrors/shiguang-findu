@@ -67,13 +67,13 @@ const submit = async () => {
           </div>
 
           <div>
-            <b>精准匹配</b>
-            <span>智能检索相关线索</span>
+            <b>快速检索</b>
+            <span>多维度筛选查找</span>
           </div>
 
           <div>
-            <b>安全保障</b>
-            <span>实名认证更放心</span>
+            <b>信息追踪</b>
+            <span>认领流程全程可查</span>
           </div>
         </div>
       </div>
