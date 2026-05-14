@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { storage } from '@/utils/storage'
+import router from '@/router'
 
 const request = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
@@ -61,7 +62,7 @@ const redirectToLogin = () => {
 
   if (window.location.pathname === '/login') return
 
-  window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`
+  router.push(`/login?redirect=${encodeURIComponent(currentPath)}`)
 }
 
 request.interceptors.request.use(
@@ -102,7 +103,7 @@ request.interceptors.response.use(
 
     if (isNetworkError(error)) {
       if (window.location.pathname !== '/network-error') {
-        window.location.href = '/network-error'
+        router.push('/network-error')
       }
       return Promise.reject(error)
     } else if (status === 401) {

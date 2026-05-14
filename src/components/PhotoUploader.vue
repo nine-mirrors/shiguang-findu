@@ -30,7 +30,11 @@ const objectUrl = ref('')
 const revokeObjectUrl = () => {
   if (!objectUrl.value) return
 
-  URL.revokeObjectURL(objectUrl.value)
+  try {
+    URL.revokeObjectUrl(objectUrl.value)
+  } catch (e) {
+    // URL 可能已经被 revoke，忽略错误
+  }
   objectUrl.value = ''
 }
 

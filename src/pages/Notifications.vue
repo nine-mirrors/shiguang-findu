@@ -76,6 +76,8 @@ async function load() {
   try {
     const res = await getNotificationsApi()
     list.value = normalizeNotifications(res)
+  } catch (err) {
+    // 错误已在 request.js 全局处理
   } finally {
     loading.value = false
   }

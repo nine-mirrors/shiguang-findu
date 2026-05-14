@@ -11,10 +11,18 @@ export const storage = {
     }
   },
   set(key, value) {
-    localStorage.setItem(PREFIX + key, JSON.stringify(value))
+    try {
+      localStorage.setItem(PREFIX + key, JSON.stringify(value))
+    } catch (e) {
+      console.warn('Storage set failed:', e)
+    }
   },
   remove(key) {
-    localStorage.removeItem(PREFIX + key)
-    localStorage.removeItem(LEGACY_PREFIX + key)
+    try {
+      localStorage.removeItem(PREFIX + key)
+      localStorage.removeItem(LEGACY_PREFIX + key)
+    } catch (e) {
+      console.warn('Storage remove failed:', e)
+    }
   }
 }

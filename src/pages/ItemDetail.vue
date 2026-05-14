@@ -142,7 +142,7 @@ async function load() {
     item.value = normalizeItem(res)
 
     if (!item.value) {
-      router.push('/404')
+      router.push({ name: 'NotFound' })
       return
     }
 
@@ -152,7 +152,7 @@ async function load() {
     ])
   } catch (err) {
     if (err.response?.status === 404) {
-      router.push('/404')
+      router.push({ name: 'NotFound' })
     } else {
       error.value = err
     }

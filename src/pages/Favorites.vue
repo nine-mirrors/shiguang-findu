@@ -28,6 +28,8 @@ async function loadFavorites() {
     const list = normalizeFavorites(res)
 
     items.value = normalizeFavoriteItems(list)
+  } catch (err) {
+    // 错误已在 request.js 全局处理
   } finally {
     loading.value = false
   }
