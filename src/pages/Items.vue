@@ -12,7 +12,8 @@ const loading = ref(false)
 const items = ref([])
 const categoryList = ref([])
 const page = ref(1)
-const pageSize = 6
+const pageSize = 12
+const total = ref(0)
 
 const query = reactive({
   keyword: '',
@@ -48,10 +49,6 @@ const categories = computed(() => {
   return categoryList.value.length ? categoryList.value : fallbackCategories
 })
 
-const pagedItems = computed(() => {
-  return items.value.slice((page.value - 1) * pageSize, page.value * pageSize)
-})
-
 function normalizeCategories(res) {
   const list = res?.data || res || []
 
@@ -72,6 +69,13 @@ function normalizeCategories(res) {
 
 function normalizeItems(res) {
   const payload = res?.data || res
+  
+  if (payload?.total) {
+    total.value = payload.total
+  } else {
+    total.value = Array.isArray(payload) ? payload.length : 0
+  }
+  
   const list = payload?.list || payload?.data || payload?.items || payload || []
 
   return Array.isArray(list) ? list : []
@@ -79,8 +83,8 @@ function normalizeItems(res) {
 
 function buildParams() {
   const params = {
-    page: 1,
-    page_size: 100
+    page: page.value,
+    page_size: pageSize
   }
 
   if (query.keyword) {
@@ -197,18 +201,18 @@ watch(() => route.query, syncRoute)
     </section>
 
     <div class="result-bar">
-      <b>共找到 {{ items.length }} 条信息</b>
-      <span>当前排序：发布时间倒序</span>
+      <b>共找到 {{ total }} 条信息</b>
+      <span>当前页：{{ page }} / {{ Math.ceil(total / pageSize) || 1 }}</span>
     </div>
 
     <EmptyState v-if="!loading && !items.length" title="暂时没有匹配的信息" desc="换一个关键词，或者直接发布一条新的失物/招领信息。" button-text="去发布" @action="$router.push('/publish')" />
 
     <TransitionGroup v-else name="list" tag="section" class="item-grid">
-      <ItemCard v-for="item in pagedItems" :key="item.id" :item="item" />
+      <ItemCard v-for="item in items" :key="item.id" :item="item" />
     </TransitionGroup>
 
-    <div v-if="items.length > pageSize" class="pagination-bar">
-      <el-pagination v-model:current-page="page" background layout="prev, pager, next" :page-size="pageSize" :total="items.length" />
+    <div v-if="total > pageSize" class="pagination-bar">
+      <el-pagination v-model:current-page="page" background layout="prev, pager, next, total" :page-size="pageSize" :total="total" @current-change="load" />
     </div>
   </div>
 </template>

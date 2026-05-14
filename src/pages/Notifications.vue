@@ -144,14 +144,12 @@ onMounted(load)
       <aside class="glass-card mail-card">
         <LineIcon name="file" tone="blue" />
 
-        <h2>邮箱推送策略</h2>
-
-        <p>注册验证码、发布审核结果、认领状态变化、新匹配信息、滞留提醒会进入邮件队列。邮件只做提醒，敏感信息需回平台查看。</p>
+        <h2>消息通知说明</h2>
 
         <ul>
-          <li>不在邮件中展示完整手机号、地址、证件号。</li>
-          <li>Laravel 后端建议使用 Notification + Queue。</li>
-          <li>站内消息与邮箱消息保持同一业务事件源。</li>
+          <li>站内消息会实时推送审核结果、认领状态等重要通知</li>
+          <li>重要消息会同步发送至您的注册邮箱</li>
+          <li>邮件仅作为提醒，详细内容请登录平台查看</li>
         </ul>
       </aside>
     </section>

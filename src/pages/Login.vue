@@ -98,6 +98,10 @@ const submit = async () => {
           还没有账号？
           <router-link to="/register">立即注册</router-link>
         </p>
+
+        <p class="help-link">
+          <router-link to="/guide">查看用户须知与平台规则</router-link>
+        </p>
       </div>
     </section>
   </div>
@@ -228,6 +232,20 @@ const submit = async () => {
 .switch a {
   color: var(--primary-strong);
   font-weight: 900;
+}
+
+.help-link {
+  text-align: center;
+  margin-top: 12px;
+}
+
+.help-link a {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.help-link a:hover {
+  color: var(--primary);
 }
 
 @media (max-width: 860px) {

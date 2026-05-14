@@ -46,6 +46,13 @@ const getClaimScore = claim => claim.score || claim.match_score || 0
 const getClaimCreatedAt = claim => claim.createdAt || claim.created_at || '时间待补充'
 const getClaimDeliveryAddress = claim => claim.deliveryAddress || claim.delivery_address || ''
 
+const canEdit = item => {
+  const auditStatus = getAuditStatus(item)
+  return ['pending', 'rejected'].includes(auditStatus)
+}
+
+const canViewClaims = item => item.type === 'found' && getAuditStatus(item) === 'approved'
+
 const auditText = status => {
   if (status === 'approved') return '已通过'
   if (status === 'rejected') return '已拒绝'
@@ -178,8 +185,10 @@ watch(() => route.query.tab, value => {
 
             <div class="row-actions">
               <el-button @click="$router.push(`/items/${item.id}`)">查看</el-button>
+              <el-button v-if="canEdit(item)" type="primary" plain @click="$router.push(`/items/${item.id}/edit`)">编辑</el-button>
               <el-button type="success" :disabled="['done', 'completed'].includes(getItemStatus(item))" @click="markDone(item)">标记完成</el-button>
               <el-button type="danger" plain @click="remove(item)">删除</el-button>
+              <el-button v-if="canViewClaims(item)" type="warning" plain @click="$router.push(`/items/${item.id}/claims`)">查看认领申请</el-button>
             </div>
           </div>
         </section>

@@ -211,7 +211,10 @@ onMounted(loadItem)
           <el-input v-model="form.remark" type="textarea" :rows="3" maxlength="120" show-word-limit placeholder="可补充领取时间、联系方式说明或其他情况" />
         </el-form-item>
 
-        <el-checkbox v-model="form.agree">我已阅读并同意《用户须知与平台规则》，确认所填信息真实有效。</el-checkbox>
+        <el-checkbox v-model="form.agree">
+          我已阅读并同意
+          <router-link to="/guide" class="rule-link">《用户须知与平台规则》</router-link>，确认所填信息真实有效。
+        </el-checkbox>
 
         <div class="form-actions">
           <el-button @click="$router.back()">返回</el-button>
@@ -365,6 +368,20 @@ onMounted(loadItem)
   margin: 0;
   color: var(--muted);
   line-height: 1.75;
+}
+
+.rule-link {
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
+.rule-link:hover {
+  text-decoration: underline;
+}
+
+:deep(.el-checkbox__label) {
+  white-space: normal;
+  line-height: 1.6;
 }
 
 @media (max-width: 900px) {
