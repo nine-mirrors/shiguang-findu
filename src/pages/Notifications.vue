@@ -1,9 +1,12 @@
 <script setup>
 import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getNotificationsApi, readNotificationApi, readAllNotificationsApi } from '@/api/notification'
 import LineIcon from '@/components/LineIcon.vue'
 import LoadingState from '@/components/LoadingState.vue'
+
+const router = useRouter()
 
 const list = ref([])
 const loading = ref(false)
@@ -86,11 +89,29 @@ async function load() {
 
 async function read(item) {
   if (!isUnread(item)) {
+    handleNotificationClick(item)
     return
   }
 
   await readNotificationApi(item.id)
   await load()
+  handleNotificationClick(item)
+}
+
+function handleNotificationClick(item) {
+  const relatedId = item.related_id || item.item_id || item.target_id
+
+  if (item.type === 'match' && relatedId) {
+    router.push(`/items/${relatedId}`)
+  } else if (item.type === 'audit' && relatedId) {
+    router.push(`/items/${relatedId}`)
+  } else if (item.type === 'claim' && relatedId) {
+    router.push(`/items/${relatedId}`)
+  } else if (item.type === 'announcement') {
+    if (relatedId) {
+      router.push(`/items/${relatedId}`)
+    }
+  }
 }
 
 async function readAll() {
