@@ -624,12 +624,19 @@ onMounted(loadCategories)
   :deep(.el-radio-group) {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
+    width: 100%;
   }
 
   :deep(.el-radio-button) {
     width: 100%;
-    justify-content: center;
+  }
+
+  :deep(.el-radio-button__inner) {
+    width: 100%;
+    display: block;
+    text-align: center;
+    border-radius: 8px;
   }
 }
 </style>

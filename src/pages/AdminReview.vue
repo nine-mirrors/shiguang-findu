@@ -649,5 +649,11 @@ onMounted(load)
     flex: 1;
     min-width: calc(50% - 4px);
   }
+
+  :deep(.el-radio-button__inner) {
+    width: 100%;
+    text-align: center;
+    border-radius: 6px;
+  }
 }
 </style>
