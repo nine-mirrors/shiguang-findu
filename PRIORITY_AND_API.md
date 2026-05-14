@@ -226,85 +226,37 @@ DELETE /api/lost-found/items/{id}/images/{imageId}
 }
 ```
 
-### 5.3 图片上传到OSS
+### 5.3 图片上传（后端存储）
 
-#### 前端上传流程（推荐）
-
-前端直接上传到OSS，后端只存储URL：
+#### 上传流程
 
 ```
-1. 前端请求后端获取上传凭证
-   GET /api/oss/token
-   
-2. 后端返回OSS配置（临时凭证）
-   {
-     "access_key_id": "xxx",
-     "access_key_secret": "xxx", 
-     "security_token": "xxx",
-     "bucket": "findu-images",
-     "region": "oss-cn-hangzhou",
-     "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
-     "upload_dir": "items/2024/01/",
-     "expire_time": 3600
-   }
-
-3. 前端使用STS Token直传OSS
-   - 使用阿里云OSS SDK
-   - 前端构造文件名：{user_id}_{timestamp}_{random}.{ext}
-   - 上传完成后获得URL
-
-4. 前端将URL传给后端
-   POST /api/lost-found/items/{id}/images
-   {
-     "images": ["https://findu-images.oss-cn-hangzhou.aliyuncs.com/items/2024/01/1_1705312800_abc123.jpg"]
-   }
+1. 前端上传图片文件到后端
+2. 后端保存到服务器本地或云存储
+3. 返回图片URL给前端
+4. 前端将URL关联到物品
 ```
 
 #### 接口定义
 
-##### 获取OSS上传凭证
-
-```
-GET /api/oss/token
-Authorization: Bearer {token}
-```
-
-响应：
-```json
-{
-  "access_key_id": "STS.xxx",
-  "access_key_secret": "xxx",
-  "security_token": "xxx",
-  "bucket": "findu-images",
-  "region": "oss-cn-hangzhou", 
-  "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
-  "upload_dir": "items/2024/01/",
-  "expire_time": 3600
-}
-```
-
-##### 保存图片URL到物品
+##### 上传物品图片
 
 ```
 POST /api/lost-found/items/{id}/images
-Content-Type: application/json
+Content-Type: multipart/form-data
 
-{
-  "images": [
-    "https://findu-images.oss-cn-hangzhou.aliyuncs.com/items/2024/01/1_1705312800_abc123.jpg",
-    "https://findu-images.oss-cn-hangzhou.aliyuncs.com/items/2024/01/1_1705312900_def456.jpg"
-  ]
-}
+Body:
+- images[]: File (支持多图，最多3张)
 ```
 
 响应：
 ```json
 {
-  "message": "图片保存成功",
+  "message": "图片上传成功",
   "images": [
     {
       "id": 1,
-      "url": "https://findu-images.oss-cn-hangzhou.aliyuncs.com/items/2024/01/1_1705312800_abc123.jpg"
+      "url": "https://findu.example.com/storage/items/1_1705312800.jpg"
     }
   ]
 }

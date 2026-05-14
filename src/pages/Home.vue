@@ -245,6 +245,44 @@ onMounted(async () => {
 <style scoped>
 .home-page {
   padding-top: 38px;
+  position: relative;
+  overflow: hidden;
+}
+
+.home-page::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    radial-gradient(ellipse at 20% 20%, rgba(79, 124, 255, 0.15) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(0, 184, 148, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(102, 126, 234, 0.08) 0%, transparent 70%),
+    linear-gradient(180deg, rgba(248, 250, 252, 1) 0%, rgba(241, 245, 249, 1) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.home-page::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: 
+    linear-gradient(rgba(79, 124, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(79, 124, 255, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.home-page > * {
+  position: relative;
+  z-index: 1;
 }
 
 .hero {
@@ -253,6 +291,22 @@ onMounted(async () => {
   gap: 38px;
   align-items: center;
   min-height: 540px;
+  padding: 40px 0;
+}
+
+.hero-copy {
+  animation: slideUp 0.8s ease-out forwards;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .hero-copy h1 {
@@ -261,6 +315,10 @@ onMounted(async () => {
   line-height: .96;
   letter-spacing: -.075em;
   max-width: 760px;
+  background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #1e293b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .hero-copy p {
@@ -278,8 +336,15 @@ onMounted(async () => {
   padding: 10px;
   margin: 28px 0 18px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, .82);
-  box-shadow: 0 20px 50px rgba(31, 45, 92, .12);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 20px 60px rgba(31, 45, 92, 0.15);
+  backdrop-filter: blur(10px);
+  transition: all 0.3s ease;
+}
+
+.search-box:hover {
+  box-shadow: 0 24px 80px rgba(31, 45, 92, 0.2);
+  transform: translateY(-2px);
 }
 
 .hero-actions {
@@ -294,8 +359,34 @@ onMounted(async () => {
   place-items: center;
   padding: 28px;
   border-radius: 42px;
-  background: radial-gradient(circle at top left, rgba(255, 255, 255, .80), transparent 18rem), linear-gradient(135deg, rgba(79, 124, 255, .25), rgba(0, 184, 148, .14));
-  box-shadow: 0 34px 90px rgba(31, 45, 92, .18);
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 18rem), linear-gradient(135deg, rgba(79, 124, 255, 0.2), rgba(0, 184, 148, 0.12));
+  box-shadow: 0 34px 90px rgba(31, 45, 92, 0.15);
+  animation: floatUp 0.8s ease-out 0.3s forwards;
+  opacity: 0;
+}
+
+@keyframes floatUp {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+.float-slow {
+  animation: floatSlow 6s ease-in-out infinite;
 }
 
 .phone-card {
