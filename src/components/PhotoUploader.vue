@@ -135,7 +135,7 @@ onBeforeUnmount(revokeObjectUrl)
 
 .upload-empty {
   width: 100%;
-  min-height: 172px;
+  min-height: 220px;
   display: grid;
   place-items: center;
   gap: 8px;
@@ -201,6 +201,7 @@ onBeforeUnmount(revokeObjectUrl)
   position: relative;
   overflow: hidden;
   min-height: 220px;
+  max-height: 280px;
   display: grid;
   place-items: center;
   border-radius: 24px;
@@ -213,8 +214,8 @@ onBeforeUnmount(revokeObjectUrl)
   width: 100%;
   height: 100%;
   min-height: 220px;
-  max-height: 320px;
-  object-fit: contain;
+  max-height: 280px;
+  object-fit: cover;
   display: block;
   background: linear-gradient(135deg, #f8fbff, #eef4ff);
 }

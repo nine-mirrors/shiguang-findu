@@ -156,7 +156,7 @@ p {
 }
 
 .compare-photo {
-  min-height: 190px;
+  min-height: 220px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -168,8 +168,8 @@ p {
 .compare-photo img {
   width: 100%;
   height: 100%;
-  min-height: 190px;
-  max-height: 260px;
+  min-height: 220px;
+  max-height: 280px;
   object-fit: cover;
   display: block;
 }
