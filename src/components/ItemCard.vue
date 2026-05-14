@@ -201,6 +201,64 @@ function goDetail() {
   background: rgba(244, 63, 94, .12);
 }
 
+.card-tags .el-tag {
+  font-size: 11px;
+  padding: 0 6px;
+  height: 20px;
+  line-height: 18px;
+}
+
+@media (max-width: 620px) {
+  .item-card {
+    flex-direction: column;
+    min-height: auto;
+  }
+
+  .card-image {
+    width: 100%;
+    height: 160px;
+    flex-shrink: 0;
+  }
+
+  .card-body {
+    padding: 12px;
+  }
+
+  .card-title {
+    font-size: 16px;
+    line-height: 1.4;
+    margin-bottom: 6px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .card-desc {
+    font-size: 13px;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+
+  .card-meta {
+    font-size: 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .card-tags {
+    margin-top: 8px;
+  }
+
+  .card-actions {
+    padding: 10px 12px;
+  }
+}
+
 .fallback-icon {
   width: 86px;
   height: 86px;

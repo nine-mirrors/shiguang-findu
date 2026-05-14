@@ -320,16 +320,54 @@ const refreshPage = () => {
 
 @media (max-width: 620px) {
   .admin-nav {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .admin-nav a {
+    padding: 12px 8px;
+    font-size: 12px;
+    flex-direction: column;
+    text-align: center;
+    gap: 6px;
+  }
+
+  .admin-nav :deep(.line-icon) {
+    width: 32px;
+    height: 32px;
+  }
+
+  .admin-nav :deep(.line-icon svg) {
+    width: 18px;
+    height: 18px;
+  }
+
+  .admin-nav a span {
+    font-size: 11px;
   }
 
   .admin-top {
     display: block;
+    padding: 16px;
+  }
+
+  .admin-top h1 {
+    font-size: 24px;
   }
 
   .top-actions {
     justify-content: flex-start;
     margin-top: 14px;
+    flex-wrap: wrap;
+  }
+
+  .top-actions .el-button {
+    flex: 1;
+    min-width: 100px;
+  }
+
+  .admin-main {
+    padding: 8px 10px 24px;
   }
 }
 </style>

@@ -542,4 +542,81 @@ onMounted(loadCategories)
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 620px) {
+  .publish-page {
+    padding: 20px 0;
+  }
+
+  .publish-grid {
+    gap: 20px;
+  }
+
+  .form-panel {
+    padding: 16px;
+  }
+
+  .publish-header h1 {
+    font-size: 24px;
+  }
+
+  .type-tabs {
+    gap: 8px;
+  }
+
+  .type-tabs .el-button {
+    flex: 1;
+    padding: 12px 8px;
+  }
+
+  .submit-line {
+    flex-direction: column;
+  }
+
+  .submit-line .el-button {
+    width: 100%;
+  }
+
+  .preview-panel {
+    padding: 16px;
+  }
+
+  .live-cover {
+    height: 160px;
+  }
+
+  .live-body {
+    padding: 14px;
+  }
+
+  .live-head b {
+    font-size: 16px;
+  }
+
+  .live-body p {
+    font-size: 13px;
+    margin: 8px 0 12px;
+  }
+
+  .live-meta {
+    font-size: 12px;
+  }
+
+  .assist-box {
+    padding: 14px;
+    font-size: 13px;
+  }
+
+  :deep(.el-form-item__label) {
+    font-size: 14px;
+  }
+
+  :deep(.el-input__inner) {
+    font-size: 14px;
+  }
+
+  :deep(.el-textarea__inner) {
+    font-size: 14px;
+  }
+}
 </style>
