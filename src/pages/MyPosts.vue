@@ -6,6 +6,7 @@ import { getMyItemsApi, updateItemStatusApi, deleteItemApi } from '@/api/item'
 import { getMyClaimsApi } from '@/api/claim'
 import StatCard from '@/components/StatCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import LoadingState from '@/components/LoadingState.vue'
 
 const route = useRoute()
 
@@ -165,17 +166,20 @@ watch(() => route.query.tab, value => {
       </div>
     </section>
 
-    <section class="mini-stats">
-      <StatCard label="我的发布" :value="items.length" icon="pin" tone="blue" />
-      <StatCard label="我的申请" :value="claims.length" icon="user-check" tone="purple" />
-      <StatCard label="已完成" :value="doneCount" icon="check" tone="green" />
-    </section>
+    <LoadingState v-if="loading" text="正在加载我的信息..." />
 
-    <el-tabs v-model="activeTab" class="soft-tabs">
-      <el-tab-pane label="我的发布" name="posts">
-        <EmptyState v-if="!loading && !items.length" title="你还没有发布信息" desc="发布一条失物或招领信息后，会在这里跟踪状态。" button-text="立即发布" @action="$router.push('/publish')" />
+    <template v-else>
+      <section class="mini-stats">
+        <StatCard label="我的发布" :value="items.length" icon="pin" tone="blue" />
+        <StatCard label="我的申请" :value="claims.length" icon="user-check" tone="purple" />
+        <StatCard label="已完成" :value="doneCount" icon="check" tone="green" />
+      </section>
 
-        <section v-else class="post-list">
+      <el-tabs v-model="activeTab" class="soft-tabs">
+        <el-tab-pane label="我的发布" name="posts">
+          <EmptyState v-if="!items.length" title="你还没有发布信息" desc="发布一条失物或招领信息后，会在这里跟踪状态。" button-text="立即发布" @action="$router.push('/publish')" />
+
+          <section v-else class="post-list">
           <div v-for="item in items" :key="item.id" class="post-row glass-card">
             <div class="row-main">
               <b>{{ item.name }}</b>
@@ -227,6 +231,7 @@ watch(() => route.query.tab, value => {
         </section>
       </el-tab-pane>
     </el-tabs>
+    </template>
   </div>
 </template>
 

@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getNotificationsApi, readNotificationApi, readAllNotificationsApi } from '@/api/notification'
 import LineIcon from '@/components/LineIcon.vue'
+import LoadingState from '@/components/LoadingState.vue'
 
 const list = ref([])
 const loading = ref(false)
@@ -116,14 +117,16 @@ onMounted(load)
       <p>第一优先级功能：站内通知 + 邮箱推送闭环。邮箱发送由 Laravel 后端完成，前端负责展示和状态读取。</p>
     </section>
 
-    <section class="notify-layout">
+    <LoadingState v-if="loading" text="正在加载通知..." />
+
+    <section v-else class="notify-layout">
       <div class="notify-list glass-card">
         <div class="notify-toolbar">
           <b>我的通知</b>
-          <el-button size="small" :loading="loading" @click="readAll">全部已读</el-button>
+          <el-button size="small" @click="readAll">全部已读</el-button>
         </div>
 
-        <div v-if="!loading && !list.length" class="empty-text">
+        <div v-if="!list.length" class="empty-text">
           暂无通知
         </div>
 

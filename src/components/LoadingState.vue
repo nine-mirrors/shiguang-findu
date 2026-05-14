@@ -13,10 +13,13 @@ const props = defineProps({
 
 <template>
   <div :class="['loading-state', { fullscreen: props.fullscreen }]">
-    <div class="loader">
-      <div class="dot"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
+    <div class="loader-wrapper">
+      <div class="loader">
+        <div class="ring"></div>
+        <div class="ring"></div>
+        <div class="ring"></div>
+      </div>
+      <div class="center-dot"></div>
     </div>
     <p v-if="props.text" class="loading-text">{{ props.text }}</p>
   </div>
@@ -33,45 +36,60 @@ const props = defineProps({
   min-height: 50vh;
 }
 
-.loader {
-  display: flex;
-  gap: 8px;
+.loader-wrapper {
+  position: relative;
+  width: 64px;
+  height: 64px;
 }
 
-.dot {
+.loader {
+  position: absolute;
+  inset: 0;
+}
+
+.ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  border-top-color: #4f7cff;
+  animation: spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+.ring:nth-child(2) {
+  animation-delay: -0.4s;
+  border-top-color: #00b894;
+}
+
+.ring:nth-child(3) {
+  animation-delay: -0.8s;
+  border-top-color: #6c63ff;
+}
+
+.center-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   width: 12px;
   height: 12px;
   border-radius: 50%;
   background: linear-gradient(135deg, #4f7cff, #00b894);
-  animation: bounce 1.4s ease-in-out infinite;
 }
 
-.dot:nth-child(1) {
-  animation-delay: 0s;
-}
-
-.dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes bounce {
-  0%, 80%, 100% {
-    transform: scale(0.8);
-    opacity: 0.5;
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
   }
-  40% {
-    transform: scale(1.2);
-    opacity: 1;
+  100% {
+    transform: rotate(360deg);
   }
 }
 
 .loading-text {
-  margin-top: 16px;
-  color: #4b5563;
-  font-size: 14px;
+  margin-top: 24px;
+  color: #6b7280;
+  font-size: 15px;
+  font-weight: 500;
 }
 </style>
