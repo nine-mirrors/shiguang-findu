@@ -274,11 +274,10 @@ onMounted(loadCategories)
                 <el-date-picker 
                   v-model="form.happenTime" 
                   type="datetime" 
-                  value-format="YYYY-MM-DD HH:mm" 
-                  format="YYYY-MM-DD HH:mm"
+                  value-format="YYYY-MM-DD HH:mm:ss" 
+                  format="YYYY-MM-DD HH:mm:ss"
                   placeholder="选择时间" 
                   style="width: 100%"
-                  :default-time="new Date(0, 0, 0, 0, 0, 0)"
                 />
               </el-form-item>
 
