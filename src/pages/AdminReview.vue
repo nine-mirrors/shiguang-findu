@@ -218,19 +218,23 @@ const load = async () => {
 
     items.value = normalizeList(itemRes)
     claims.value = normalizeList(claimRes)
+  } catch {
   } finally {
     loading.value = false
   }
 }
 
 const audit = async (item, status) => {
-  await auditAdminItemApi(item.id, {
-    auditStatus: status,
-    rejectReason: status === 'rejected' ? '信息不完整或疑似重复' : ''
-  })
+  try {
+    await auditAdminItemApi(item.id, {
+      auditStatus: status,
+      rejectReason: status === 'rejected' ? '信息不完整或疑似重复' : ''
+    })
 
-  ElMessage.success(status === 'approved' ? '已通过' : '已拒绝')
-  load()
+    ElMessage.success(status === 'approved' ? '已通过' : '已拒绝')
+    load()
+  } catch {
+  }
 }
 
 const openReject = item => {
@@ -242,34 +246,43 @@ const openReject = item => {
 const confirmReject = async () => {
   if (!rejectReason.value.trim()) return ElMessage.warning('请填写拒绝原因')
 
-  await auditAdminItemApi(rejectTarget.value.id, {
-    auditStatus: 'rejected',
-    rejectReason: rejectReason.value
-  })
+  try {
+    await auditAdminItemApi(rejectTarget.value.id, {
+      auditStatus: 'rejected',
+      rejectReason: rejectReason.value
+    })
 
-  ElMessage.success('已拒绝并记录原因')
-  rejectDialog.value = false
-  load()
+    ElMessage.success('已拒绝并记录原因')
+    rejectDialog.value = false
+    load()
+  } catch {
+  }
 }
 
 const markDuplicate = async item => {
-  await auditAdminItemApi(item.id, {
-    auditStatus: 'rejected',
-    rejectReason: '疑似重复发布，请合并或补充说明后重新提交'
-  })
+  try {
+    await auditAdminItemApi(item.id, {
+      auditStatus: 'rejected',
+      rejectReason: '疑似重复发布，请合并或补充说明后重新提交'
+    })
 
-  ElMessage.success('已标记为疑似重复')
-  load()
+    ElMessage.success('已标记为疑似重复')
+    load()
+  } catch {
+  }
 }
 
 const auditClaimRow = async (claim, status) => {
-  await auditAdminClaimApi(claim.id, {
-    status,
-    remark: status === 'rejected' ? '证明细节不足或身份核验未通过' : '核验通过，进入交接流程'
-  })
+  try {
+    await auditAdminClaimApi(claim.id, {
+      status,
+      remark: status === 'rejected' ? '证明细节不足或身份核验未通过' : '核验通过，进入交接流程'
+    })
 
-  ElMessage.success(status === 'approved' ? '认领申请已通过，已进入运营处理的交接队列' : '认领申请已驳回')
-  load()
+    ElMessage.success(status === 'approved' ? '认领申请已通过，已进入运营处理的交接队列' : '认领申请已驳回')
+    load()
+  } catch {
+  }
 }
 
 const goItem = claim => {

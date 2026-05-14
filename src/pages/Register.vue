@@ -104,6 +104,7 @@ const submit = async () => {
     await userStore.register(form)
     ElMessage.success('注册成功')
     router.push('/home')
+  } catch {
   } finally {
     loading.value = false
   }

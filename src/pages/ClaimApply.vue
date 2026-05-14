@@ -99,12 +99,15 @@ function normalizeItem(res) {
 }
 
 async function loadItem() {
-  const res = await getItemDetailApi(route.params.id)
+  try {
+    const res = await getItemDetailApi(route.params.id)
 
-  item.value = normalizeItem(res)
+    item.value = normalizeItem(res)
 
-  if (!item.value) {
-    ElMessage.error('未找到该物品信息')
+    if (!item.value) {
+      ElMessage.error('未找到该物品信息')
+    }
+  } catch {
   }
 }
 
@@ -122,6 +125,7 @@ async function submit() {
     await createClaimApi(form)
     ElMessage.success('申请已提交，等待工作人员核验')
     router.push('/my-posts?tab=claims')
+  } catch {
   } finally {
     loading.value = false
   }

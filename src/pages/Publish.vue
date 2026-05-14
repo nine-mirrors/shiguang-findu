@@ -213,6 +213,7 @@ async function submit() {
 
     ElMessage.success('提交成功，已进入待审核状态')
     router.push('/my-posts')
+  } catch {
   } finally {
     loading.value = false
   }

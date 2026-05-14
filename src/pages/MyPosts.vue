@@ -114,18 +114,22 @@ const load = async () => {
 
     items.value = normalizeList(itemRes)
     claims.value = normalizeList(claimRes)
+  } catch {
   } finally {
     loading.value = false
   }
 }
 
 const markDone = async item => {
-  await updateItemStatusApi(item.id, {
-    status: 'completed'
-  })
+  try {
+    await updateItemStatusApi(item.id, {
+      status: 'completed'
+    })
 
-  ElMessage.success('状态已更新')
-  await load()
+    ElMessage.success('状态已更新')
+    await load()
+  } catch {
+  }
 }
 
 const remove = async item => {
@@ -133,10 +137,13 @@ const remove = async item => {
     type: 'warning'
   })
 
-  await deleteItemApi(item.id)
+  try {
+    await deleteItemApi(item.id)
 
-  ElMessage.success('已删除')
-  await load()
+    ElMessage.success('已删除')
+    await load()
+  } catch {
+  }
 }
 
 onMounted(load)

@@ -40,6 +40,7 @@ const submit = async () => {
     await userStore.login(form)
     ElMessage.success('登录成功')
     router.push(getRedirectPath())
+  } catch {
   } finally {
     loading.value = false
   }

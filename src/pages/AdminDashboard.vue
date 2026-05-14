@@ -63,9 +63,11 @@ const todoText = type => {
 }
 
 const load = async () => {
-  const res = await getAdminDashboardApi()
-
-  data.value = normalizeDashboard(res)
+  try {
+    const res = await getAdminDashboardApi()
+    data.value = normalizeDashboard(res)
+  } catch {
+  }
 }
 
 onMounted(load)
