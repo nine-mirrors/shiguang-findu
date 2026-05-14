@@ -13,27 +13,42 @@ const props = defineProps({
 
 <template>
   <div :class="['loading-state', { fullscreen: props.fullscreen }]">
-    <div class="loader-wrapper">
-      <div class="loader">
-        <div class="ring"></div>
-        <div class="ring"></div>
-        <div class="ring"></div>
+    <div class="loader-container">
+      <div class="loader-wrapper">
+        <div class="loader">
+          <div class="ring"></div>
+          <div class="ring"></div>
+          <div class="ring"></div>
+        </div>
+        <div class="center-dot"></div>
       </div>
-      <div class="center-dot"></div>
+      <p v-if="props.text" class="loading-text">{{ props.text }}</p>
     </div>
-    <p v-if="props.text" class="loading-text">{{ props.text }}</p>
   </div>
 </template>
 
 <style scoped>
 .loading-state {
-  display: grid;
-  place-items: center;
-  padding: 60px 20px;
+  position: relative;
+  min-height: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.fullscreen {
-  min-height: 50vh;
+.loading-state.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+}
+
+.loader-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .loader-wrapper {
@@ -75,6 +90,7 @@ const props = defineProps({
   height: 12px;
   border-radius: 50%;
   background: linear-gradient(135deg, #4f7cff, #00b894);
+  box-shadow: 0 0 20px rgba(79, 124, 255, 0.4);
 }
 
 @keyframes spin {
@@ -91,5 +107,6 @@ const props = defineProps({
   color: #6b7280;
   font-size: 15px;
   font-weight: 500;
+  text-align: center;
 }
 </style>
