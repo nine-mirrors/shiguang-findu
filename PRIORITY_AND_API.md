@@ -98,13 +98,245 @@
 
 - `/api/auth/login`
 - `/api/auth/register`
+- `/api/auth/send-email-code` - 发送邮箱验证码（支持register/forget_password类型）
+- `/api/auth/forget-password` - **新增**忘记密码重置
+- `/api/auth/reset-password` - **新增**重置密码
 - `/api/lost-found/items`
+- `/api/lost-found/items/{id}` - **新增**编辑物品信息
 - `/api/my/lost-found/items`
 - `/api/claims`
 - `/api/my/claims`
 - `/api/notifications`
 - `/api/favorites`
 - `/api/verifications`
+
+## 5. 新增接口（第一优先级扩展）
+
+### 5.1 忘记密码
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/auth/send-email-code` | 发送重置密码验证码（type=forget_password） |
+| POST | `/api/auth/forget-password` | 验证验证码并发送重置链接 |
+| POST | `/api/auth/reset-password` | 使用token重置新密码 |
+
+#### 发送重置验证码
+
+```
+POST /api/auth/send-email-code
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "type": "forget_password"
+}
+```
+
+响应：
+```json
+{
+  "message": "验证码已发送到邮箱",
+  "expires_in": 900
+}
+```
+
+#### 验证并重置
+
+```
+POST /api/auth/reset-password
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "code": "123456",
+  "password": "newPassword123",
+  "password_confirmation": "newPassword123"
+}
+```
+
+响应：
+```json
+{
+  "message": "密码重置成功"
+}
+```
+
+### 5.2 编辑物品信息
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| PUT | `/api/lost-found/items/{id}` | 编辑物品信息（仅发布人或管理员） |
+| DELETE | `/api/lost-found/items/{id}/images/{imageId}` | **新增**删除物品图片 |
+
+#### 编辑物品信息
+
+```
+PUT /api/lost-found/items/{id}
+Content-Type: application/json
+
+{
+  "name": "校园卡",
+  "category_id": 1,
+  "location": "图书馆三楼",
+  "happen_time": "2024-01-15 14:30:00",
+  "description": "蓝色校园卡，卡号尾号2024",
+  "contact": "138****1234",
+  "visibility": "public",
+  "is_valuable": false
+}
+```
+
+**字段说明**：
+- `name`: 物品名称
+- `category_id`: 分类ID
+- `location`: 地点
+- `happen_time`: 丢失/拾取时间
+- `description`: 详细描述
+- `contact`: 联系方式
+- `visibility`: 可见范围（public/matched/admin_only）
+- `is_valuable`: 是否贵重物品
+
+**业务规则**：
+- 仅发布人或管理员可以编辑
+- 仅在物品状态为`pending`（待审核）或`rejected`（已拒绝）时可编辑
+- 编辑后物品状态重置为`pending`，需重新审核
+
+响应：
+```json
+{
+  "message": "物品信息已更新",
+  "item": {
+    "id": 1,
+    "status": "pending",
+    "updated_at": "2024-01-15 16:00:00"
+  }
+}
+```
+
+#### 删除物品图片
+
+```
+DELETE /api/lost-found/items/{id}/images/{imageId}
+```
+
+响应：
+```json
+{
+  "message": "图片已删除"
+}
+```
+
+### 5.3 图片上传到OSS
+
+#### 前端上传流程（推荐）
+
+前端直接上传到OSS，后端只存储URL：
+
+```
+1. 前端请求后端获取上传凭证
+   GET /api/oss/token
+   
+2. 后端返回OSS配置（临时凭证）
+   {
+     "access_key_id": "xxx",
+     "access_key_secret": "xxx", 
+     "security_token": "xxx",
+     "bucket": "findu-images",
+     "region": "oss-cn-hangzhou",
+     "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
+     "upload_dir": "items/2024/01/",
+     "expire_time": 3600
+   }
+
+3. 前端使用STS Token直传OSS
+   - 使用阿里云OSS SDK
+   - 前端构造文件名：{user_id}_{timestamp}_{random}.{ext}
+   - 上传完成后获得URL
+
+4. 前端将URL传给后端
+   POST /api/lost-found/items/{id}/images
+   {
+     "images": ["https://findu-images.oss-cn-hangzhou.aliyuncs.com/items/2024/01/1_1705312800_abc123.jpg"]
+   }
+```
+
+#### 接口定义
+
+##### 获取OSS上传凭证
+
+```
+GET /api/oss/token
+Authorization: Bearer {token}
+```
+
+响应：
+```json
+{
+  "access_key_id": "STS.xxx",
+  "access_key_secret": "xxx",
+  "security_token": "xxx",
+  "bucket": "findu-images",
+  "region": "oss-cn-hangzhou", 
+  "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
+  "upload_dir": "items/2024/01/",
+  "expire_time": 3600
+}
+```
+
+##### 保存图片URL到物品
+
+```
+POST /api/lost-found/items/{id}/images
+Content-Type: application/json
+
+{
+  "images": [
+    "https://findu-images.oss-cn-hangzhou.aliyuncs.com/items/2024/01/1_1705312800_abc123.jpg",
+    "https://findu-images.oss-cn-hangzhou.aliyuncs.com/items/2024/01/1_1705312900_def456.jpg"
+  ]
+}
+```
+
+响应：
+```json
+{
+  "message": "图片保存成功",
+  "images": [
+    {
+      "id": 1,
+      "url": "https://findu-images.oss-cn-hangzhou.aliyuncs.com/items/2024/01/1_1705312800_abc123.jpg"
+    }
+  ]
+}
+```
+
+#### 隐私脱敏（前端实现）
+
+前端已完成联系方式脱敏：
+
+```javascript
+// Phone脱敏
+function maskPhone(phone) {
+  if (!phone) return ''
+  return phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')
+}
+
+// Email脱敏  
+function maskEmail(email) {
+  if (!email) return ''
+  const [username, domain] = email.split('@')
+  return username.slice(0, 2) + '***@' + domain
+}
+```
+
+**使用场景**：
+- 物品详情页：联系方式已脱敏
+- 用户列表：邮箱、手机号已脱敏
+- 认领申请：证明照片仅管理员可见
+
+**后端建议**：
+- API返回完整数据，前端负责脱敏展示
+- 敏感字段（证明照片、证件号等）后端可限制访问
 
 ## 5. 接口启用策略
 
