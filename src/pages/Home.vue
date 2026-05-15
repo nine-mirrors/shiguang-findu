@@ -4,8 +4,6 @@ import { useRouter } from 'vue-router'
 import StatCard from '@/components/StatCard.vue'
 import ItemCard from '@/components/ItemCard.vue'
 import LineIcon from '@/components/LineIcon.vue'
-import LoadingState from '@/components/LoadingState.vue'
-import ErrorState from '@/components/ErrorState.vue'
 import { getCategoriesApi } from '@/api/category'
 import { getItemsApi } from '@/api/item'
 
@@ -14,8 +12,6 @@ const router = useRouter()
 const keyword = ref('')
 const items = ref([])
 const categoryList = ref([])
-const loading = ref(true)
-const error = ref(null)
 
 const dashboard = ref({
   total: 0,
@@ -108,22 +104,13 @@ async function loadCategories() {
 }
 
 async function loadHomeData() {
-  loading.value = true
-  error.value = null
+  const res = await getItemsApi({
+    page: 1,
+    page_size: 100
+  })
 
-  try {
-    const res = await getItemsApi({
-      page: 1,
-      page_size: 6
-    })
-
-    items.value = normalizeItems(res)
-    dashboard.value = buildDashboard(items.value)
-  } catch (err) {
-    error.value = err
-  } finally {
-    loading.value = false
-  }
+  items.value = normalizeItems(res)
+  dashboard.value = buildDashboard(items.value)
 }
 
 const buildDashboard = list => {
@@ -163,13 +150,6 @@ const buildDashboard = list => {
   }
 }
 
-async function retry() {
-  await Promise.all([
-    loadCategories(),
-    loadHomeData()
-  ])
-}
-
 onMounted(async () => {
   await Promise.all([
     loadCategories(),
@@ -180,14 +160,9 @@ onMounted(async () => {
 
 <template>
   <div class="home-page">
-    <LoadingState v-if="loading" text="正在加载首页数据..." />
-
-    <ErrorState v-else-if="error" title="加载失败" desc="网络连接异常，请稍后重试。" @retry="retry" />
-
-    <template v-else>
-      <section class="hero container">
-        <div class="hero-copy fade-up">
-          <span class="kicker">拾光 FindU · 校园智能失物协寻平台</span>
+    <section class="hero container">
+      <div class="hero-copy fade-up">
+        <span class="kicker">拾光 FindU · 校园智能失物协寻平台</span>
 
         <h1>拾起遗失之物，找回校园微光。</h1>
 
@@ -208,19 +183,17 @@ onMounted(async () => {
         <div class="phone-card">
           <div class="phone-top">
             <span></span>
-            <b>拾光线索提醒</b>
+            <b>平台安全提示</b>
           </div>
 
           <div class="match-item">
-            <strong>黑色无线耳机</strong>
-            <em>匹配度 92%</em>
-            <p>分类一致 · 地点相同 · 关键词相似</p>
+            <strong>保护个人隐私</strong>
+            <p>请勿在描述中公开身份证号、完整学号等敏感信息。</p>
           </div>
 
           <div class="match-item soft">
-            <strong>耳机充电盒</strong>
-            <em>匹配度 81%</em>
-            <p>图书馆三楼 · 时间接近</p>
+            <strong>谨防冒领风险</strong>
+            <p>认领时需提供物品细节证明，管理员会进行核验。</p>
           </div>
         </div>
       </div>
@@ -264,51 +237,12 @@ onMounted(async () => {
         <ItemCard v-for="item in latest" :key="item.id" :item="item" />
       </TransitionGroup>
     </section>
-    </template>
   </div>
 </template>
 
 <style scoped>
 .home-page {
   padding-top: 38px;
-  position: relative;
-  overflow: hidden;
-}
-
-.home-page::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: 
-    radial-gradient(ellipse at 20% 20%, rgba(79, 124, 255, 0.15) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 80%, rgba(0, 184, 148, 0.12) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 50%, rgba(102, 126, 234, 0.08) 0%, transparent 70%),
-    linear-gradient(180deg, rgba(248, 250, 252, 1) 0%, rgba(241, 245, 249, 1) 100%);
-  pointer-events: none;
-  z-index: 0;
-}
-
-.home-page::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image: 
-    linear-gradient(rgba(79, 124, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(79, 124, 255, 0.03) 1px, transparent 1px);
-  background-size: 60px 60px;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.home-page > * {
-  position: relative;
-  z-index: 1;
 }
 
 .hero {
@@ -317,22 +251,6 @@ onMounted(async () => {
   gap: 38px;
   align-items: center;
   min-height: 540px;
-  padding: 40px 0;
-}
-
-.hero-copy {
-  animation: slideUp 0.8s ease-out forwards;
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .hero-copy h1 {
@@ -341,10 +259,6 @@ onMounted(async () => {
   line-height: .96;
   letter-spacing: -.075em;
   max-width: 760px;
-  background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #1e293b 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
 .hero-copy p {
@@ -362,15 +276,8 @@ onMounted(async () => {
   padding: 10px;
   margin: 28px 0 18px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 20px 60px rgba(31, 45, 92, 0.15);
-  backdrop-filter: blur(10px);
-  transition: all 0.3s ease;
-}
-
-.search-box:hover {
-  box-shadow: 0 24px 80px rgba(31, 45, 92, 0.2);
-  transform: translateY(-2px);
+  background: rgba(255, 255, 255, .82);
+  box-shadow: 0 20px 50px rgba(31, 45, 92, .12);
 }
 
 .hero-actions {
@@ -385,34 +292,8 @@ onMounted(async () => {
   place-items: center;
   padding: 28px;
   border-radius: 42px;
-  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.9), transparent 18rem), linear-gradient(135deg, rgba(79, 124, 255, 0.2), rgba(0, 184, 148, 0.12));
-  box-shadow: 0 34px 90px rgba(31, 45, 92, 0.15);
-  animation: floatUp 0.8s ease-out 0.3s forwards;
-  opacity: 0;
-}
-
-@keyframes floatUp {
-  from {
-    opacity: 0;
-    transform: translateY(40px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes floatSlow {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-15px);
-  }
-}
-
-.float-slow {
-  animation: floatSlow 6s ease-in-out infinite;
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, .80), transparent 18rem), linear-gradient(135deg, rgba(79, 124, 255, .25), rgba(0, 184, 148, .14));
+  box-shadow: 0 34px 90px rgba(31, 45, 92, .18);
 }
 
 .phone-card {
@@ -519,16 +400,12 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 
-  .hero-panel {
-    display: none;
-  }
-
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 
   .category-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .item-grid {
@@ -537,80 +414,18 @@ onMounted(async () => {
 }
 
 @media (max-width: 620px) {
-  .home-page {
-    padding-top: 20px;
+  .search-box {
+    grid-template-columns: 1fr;
   }
 
-  .hero {
-    min-height: auto;
-    padding: 20px 0;
+  .stats-grid,
+  .category-grid,
+  .item-grid {
+    grid-template-columns: 1fr;
   }
 
   .hero-copy h1 {
-    font-size: 36px;
-    margin: 16px 0 12px;
-  }
-
-  .hero-copy p {
-    font-size: 15px;
-    line-height: 1.8;
-  }
-
-  .search-box {
-    grid-template-columns: 1fr;
-    padding: 8px;
-    margin: 20px 0 14px;
-  }
-
-  .hero-actions {
-    flex-direction: column;
-  }
-
-  .hero-actions .el-button {
-    width: 100%;
-  }
-
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-  }
-
-  .categories-section,
-  .latest-section {
-    margin-top: 32px;
-  }
-
-  .category-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
-  }
-
-  .category-grid button {
-    padding: 16px 10px;
-    min-height: 90px;
-  }
-
-  .category-grid button b {
-    font-size: 13px;
-  }
-
-  .category-grid small {
-    font-size: 11px;
-  }
-
-  .item-grid {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-
-  .section-title {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .section-title .el-button {
-    width: 100%;
+    font-size: 42px;
   }
 }
 </style>

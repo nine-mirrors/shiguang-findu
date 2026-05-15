@@ -1,8 +1,10 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { formatDateTime } from '@/utils/format'
 import LineIcon from '@/components/LineIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import AppLoading from '@/components/AppLoading.vue'
 import {
   createAnnouncementApi,
   createHandoverRecordApi,
@@ -13,6 +15,12 @@ import {
   resolveDisputeApi,
   transferOverdueItemApi
 } from '@/api/admin'
+import {
+  getCategoriesApi,
+  createCategoryApi,
+  updateCategoryApi,
+  deleteCategoryApi
+} from '@/api/category'
 
 const props = defineProps({
   tab: {
@@ -21,12 +29,21 @@ const props = defineProps({
   }
 })
 
+const pageLoading = ref(false)
 const active = ref(props.tab)
 const handovers = ref([])
 const storageRows = ref([])
 const announcements = ref([])
 const disputes = ref([])
+const categories = ref([])
 const loading = ref(false)
+
+const categoryDialog = ref(false)
+const categoryTarget = ref(null)
+const categoryForm = reactive({
+  name: '',
+  sort: 0
+})
 
 const notice = reactive({
   title: '',
@@ -36,7 +53,7 @@ const notice = reactive({
 const transferDialog = ref(false)
 const transferTarget = ref(null)
 const transferForm = reactive({
-  target: '学院办公室',
+  handoverTarget: '学院办公室',
   remark: ''
 })
 
@@ -70,9 +87,8 @@ const normalizeHandovers = list => {
 const getClaimItem = claim => claim.item || claim.lost_found_item || claim.lostFoundItem || null
 const getClaimItemId = claim => getClaimItem(claim)?.id || claim.item_id || claim.lost_found_item_id || ''
 const getClaimMethod = claim => claim.method || claim.pickup_method || 'offline'
-const getClaimProofText = claim => claim.proofText || claim.proof_text || ''
-const getClaimantName = claim => claim.claimantName || claim.claimant_name || claim.user?.username || '申请人'
-const getClaimScore = claim => claim.score || claim.match_score || 0
+const getClaimProofText = claim => claim.proofText || claim.proof_text || '暂无证明摘要'
+const getClaimantName = claim => claim.claimantName || claim.claimant_name || claim.user?.name || claim.user?.username || '申请人'
 const getDeliveryAddress = claim => claim.deliveryAddress || claim.delivery_address || ''
 
 const getStorageItem = row => row.item || row.lost_found_item || row.lostFoundItem || null
@@ -81,11 +97,11 @@ const getStorageLocation = row => row.storageLocation || row.storage_location ||
 const getExpireAt = row => row.expireAt || row.expire_at || '时间待补充'
 const getDisposalStatus = row => row.disposalStatus || row.disposal_status || 'normal'
 
-const getAnnouncementCreatedAt = item => item.createdAt || item.created_at || '时间待补充'
+const getAnnouncementCreatedAt = item => formatDateTime(item.createdAt || item.created_at || '')
 
 const getDisputeItem = dispute => dispute.item || dispute.lost_found_item || dispute.lostFoundItem || null
-const getDisputeClaimantName = dispute => dispute.claimantName || dispute.claimant_name || dispute.user?.username || '申请人'
-const getDisputeCreatedAt = dispute => dispute.createdAt || dispute.created_at || '时间待补充'
+const getDisputeClaimantName = dispute => dispute.claimantName || dispute.claimant_name || dispute.user?.name || dispute.user?.username || '申请人'
+const getDisputeCreatedAt = dispute => formatDateTime(dispute.createdAt || dispute.created_at || '')
 
 const statusText = status => {
   switch (status) {
@@ -111,8 +127,22 @@ const statusTone = status => {
   }
 }
 
+const loadCategories = async () => {
+  try {
+    const res = await getCategoriesApi()
+    const list = normalizeList(res)
+    categories.value = list.map(item => {
+      if (typeof item === 'string') return { id: item, name: item, sort: 0 }
+      return { id: item.id, name: item.name, sort: item.sort ?? 0 }
+    })
+  } catch {
+    categories.value = []
+  }
+}
+
 const load = async () => {
   loading.value = true
+  pageLoading.value = true
 
   try {
     const [claimRes, storageRes, announcementRes, disputeRes] = await Promise.all([
@@ -126,8 +156,49 @@ const load = async () => {
     storageRows.value = normalizeList(storageRes)
     announcements.value = normalizeList(announcementRes)
     disputes.value = normalizeList(disputeRes)
+  } catch {
+    ElMessage.error('加载运营数据失败')
   } finally {
     loading.value = false
+    pageLoading.value = false
+  }
+}
+
+const openCategoryDialog = (category = null) => {
+  categoryTarget.value = category
+  categoryForm.name = category?.name || ''
+  categoryForm.sort = category?.sort ?? 0
+  categoryDialog.value = true
+}
+
+const saveCategory = async () => {
+  if (!categoryForm.name.trim()) {
+    ElMessage.warning('请填写分类名称')
+    return
+  }
+
+  try {
+    if (categoryTarget.value) {
+      await updateCategoryApi(categoryTarget.value.id, categoryForm)
+      ElMessage.success('分类已更新')
+    } else {
+      await createCategoryApi(categoryForm)
+      ElMessage.success('分类已创建')
+    }
+    categoryDialog.value = false
+    await loadCategories()
+  } catch {
+    ElMessage.error('操作失败')
+  }
+}
+
+const removeCategory = async (category) => {
+  try {
+    await deleteCategoryApi(category.id)
+    ElMessage.success('分类已删除')
+    await loadCategories()
+  } catch {
+    ElMessage.error('删除失败，该分类可能已被使用')
   }
 }
 
@@ -154,24 +225,24 @@ const confirmHandover = async () => {
     remark: handoverForm.remark
   })
 
-  ElMessage.success('已生成交接记录，后端应同步更新认领和物品状态')
+  ElMessage.success('交接记录已保存')
   handoverDialog.value = false
   await load()
 }
 
 const openTransfer = row => {
   transferTarget.value = row
-  transferForm.target = '学院办公室'
+  transferForm.handoverTarget = '学院办公室'
   transferForm.remark = ''
   transferDialog.value = true
 }
 
 const confirmTransfer = async () => {
   if (!transferTarget.value) return
-  if (!transferForm.target.trim()) return ElMessage.warning('请填写移交对象')
+  if (!transferForm.handoverTarget.trim()) return ElMessage.warning('请填写移交对象')
 
   await transferOverdueItemApi(transferTarget.value.id, {
-    target: transferForm.target,
+    handoverTarget: transferForm.handoverTarget,
     remark: transferForm.remark
   })
 
@@ -189,7 +260,7 @@ const submitNotice = async () => {
     status: 'published'
   })
 
-  ElMessage.success('公告已发布，并生成站内通知')
+  ElMessage.success('公告已发布')
   notice.title = ''
   notice.content = ''
   await load()
@@ -214,10 +285,15 @@ const confirmResolve = async () => {
   await load()
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadCategories()
+})
 </script>
 
 <template>
+  <AppLoading :visible="pageLoading" text="加载运营数据..." />
+
   <div class="ops-page fade-up">
     <section class="ops-summary">
       <div class="ops-tile glass-card">
@@ -262,9 +338,13 @@ onMounted(load)
 
               <p>{{ getClaimProofText(claim) }}</p>
 
-              <small>申请人：{{ getClaimantName(claim) }} · 手机：{{ claim.phone }} · 匹配度 {{ getClaimScore(claim) }}%</small>
+              <small>申请人：{{ getClaimantName(claim) }} · 手机：{{ claim.phone || '未填写' }}</small>
 
-              <div v-if="getDeliveryAddress(claim)" class="privacy-note">邮寄地址已加密保存，确认归属后由工作人员处理。</div>
+              <div class="identity-note">
+                线下交接前需核验学生证、校园卡或其他校园身份凭证；邮寄交接前需确认注册邮箱、认领联系电话、校园身份信息和物品归属证明。
+              </div>
+
+              <div v-if="getDeliveryAddress(claim)" class="privacy-note">邮寄地址仅用于交接处理，确认归属后由管理员核验使用。</div>
             </div>
 
             <div class="actions">
@@ -290,7 +370,7 @@ onMounted(load)
 
               <p>{{ getStorageCode(row) }} · {{ getStorageLocation(row) }} · 到期 {{ getExpireAt(row) }}</p>
 
-              <small>{{ row.remark }}</small>
+              <small>{{ row.remark || '暂无备注' }}</small>
             </div>
 
             <div class="actions">
@@ -304,7 +384,7 @@ onMounted(load)
         <div class="announce-box glass-card">
           <h2>发布平台公告</h2>
 
-          <p>公告会同步进入用户通知中心，用于安全提醒、政策更新和热点区域提示。</p>
+          <p>公告用于发布平台规则、安全提醒和服务通知。公告发布后，用户可在通知中心查看相关内容。</p>
 
           <el-form :model="notice" label-position="top" class="notice-form">
             <el-form-item label="公告标题">
@@ -315,7 +395,7 @@ onMounted(load)
               <el-input v-model="notice.content" type="textarea" :rows="4" placeholder="请输入公告内容" />
             </el-form-item>
 
-            <el-button type="primary" @click="submitNotice">发布公告并通知用户</el-button>
+            <el-button type="primary" @click="submitNotice">发布公告</el-button>
           </el-form>
         </div>
 
@@ -341,7 +421,7 @@ onMounted(load)
 
       <el-tab-pane label="争议处理" name="disputes">
         <section class="ops-list">
-          <EmptyState v-if="!loading && !disputes.length" title="暂无争议记录" desc="发生认领纠纷或领错归还争议时，会进入这里处理。" />
+          <EmptyState v-if="!loading && !disputes.length" title="暂无争议记录" desc="认领过程发生争议或领错归还时，会进入这里处理。" />
 
           <div v-for="item in disputes" :key="item.id" class="ops-row glass-card">
             <LineIcon name="alert" :tone="item.status === 'resolved' ? 'green' : 'red'" />
@@ -352,7 +432,7 @@ onMounted(load)
                 <el-tag :type="item.status === 'resolved' ? 'success' : 'warning'">{{ item.status === 'resolved' ? '已结案' : '处理中' }}</el-tag>
               </div>
 
-              <p>{{ item.reason }}</p>
+              <p>{{ item.reason || '暂无争议说明' }}</p>
 
               <small>申请人：{{ getDisputeClaimantName(item) }} · {{ getDisputeCreatedAt(item) }}</small>
 
@@ -361,6 +441,32 @@ onMounted(load)
 
             <div class="actions">
               <el-button :disabled="item.status === 'resolved'" type="success" plain @click="openResolve(item)">填写结论</el-button>
+            </div>
+          </div>
+        </section>
+      </el-tab-pane>
+
+      <el-tab-pane label="分类管理" name="categories">
+        <section class="ops-list">
+          <div class="category-toolbar">
+            <el-button type="primary" @click="openCategoryDialog()">新增分类</el-button>
+          </div>
+
+          <EmptyState v-if="!categories.length" title="暂无分类" desc="添加物品分类后，用户发布时可选择对应分类。" />
+
+          <div v-for="item in categories" :key="item.id" class="ops-row glass-card">
+            <LineIcon name="package" tone="blue" />
+
+            <div>
+              <div class="title">
+                <b>{{ item.name }}</b>
+                <span>排序：{{ item.sort }}</span>
+              </div>
+            </div>
+
+            <div class="actions">
+              <el-button type="primary" plain @click="openCategoryDialog(item)">编辑</el-button>
+              <el-button type="danger" plain @click="removeCategory(item)">删除</el-button>
             </div>
           </div>
         </section>
@@ -374,7 +480,12 @@ onMounted(load)
         </el-form-item>
 
         <el-form-item label="交接备注">
-          <el-input v-model="handoverForm.remark" type="textarea" :rows="3" placeholder="例如：本人到服务台领取，工作人员核验证件和物品细节后交接。" />
+          <el-input
+            v-model="handoverForm.remark"
+            type="textarea"
+            :rows="3"
+            placeholder="例如：认领人出示学生证或校园身份凭证，管理员核验物品细节后完成交接。"
+          />
         </el-form-item>
       </el-form>
 
@@ -387,11 +498,11 @@ onMounted(load)
     <el-dialog v-model="transferDialog" title="登记滞留物品移交" width="500px">
       <el-form label-position="top">
         <el-form-item label="移交对象">
-          <el-input v-model="transferForm.target" placeholder="如：学院办公室 / 保卫处 / 公安等有关部门" />
+          <el-input v-model="transferForm.handoverTarget" placeholder="如：学院办公室 / 保卫处 / 有关部门" />
         </el-form-item>
 
         <el-form-item label="移交备注">
-          <el-input v-model="transferForm.remark" type="textarea" :rows="3" />
+          <el-input v-model="transferForm.remark" type="textarea" :rows="3" placeholder="请填写移交原因、交接地点或补充说明" />
         </el-form-item>
       </el-form>
 
@@ -402,11 +513,28 @@ onMounted(load)
     </el-dialog>
 
     <el-dialog v-model="resolveDialog" title="填写争议处理结论" width="500px">
-      <el-input v-model="resolveText" type="textarea" :rows="4" placeholder="例如：要求退回物品并重新入库 / 维持认领结果 / 移交相关部门处理" />
+      <el-input v-model="resolveText" type="textarea" :rows="4" placeholder="例如：要求补充证明材料 / 维持原审核结果 / 重新核验物品归属" />
 
       <template #footer>
         <el-button @click="resolveDialog = false">取消</el-button>
         <el-button type="primary" @click="confirmResolve">保存结论</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="categoryDialog" :title="categoryTarget ? '编辑分类' : '新增分类'" width="400px">
+      <el-form label-position="top">
+        <el-form-item label="分类名称">
+          <el-input v-model="categoryForm.name" placeholder="例如：校园卡" />
+        </el-form-item>
+
+        <el-form-item label="排序值">
+          <el-input-number v-model="categoryForm.sort" :min="0" />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="categoryDialog = false">取消</el-button>
+        <el-button type="primary" @click="saveCategory">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -509,17 +637,28 @@ onMounted(load)
 }
 
 .result,
-.privacy-note {
+.privacy-note,
+.identity-note {
+  margin-top: 10px;
   padding: 9px 12px;
   border-radius: 14px;
+  line-height: 1.7;
+}
+
+.result {
   background: rgba(0, 184, 148, .08);
   color: #047857 !important;
 }
 
 .privacy-note {
-  margin-top: 10px;
   background: rgba(79, 124, 255, .08);
   color: #315fff !important;
+}
+
+.identity-note {
+  background: rgba(255, 159, 67, .10);
+  color: #92400e;
+  font-size: 13px;
 }
 
 @media (max-width: 920px) {

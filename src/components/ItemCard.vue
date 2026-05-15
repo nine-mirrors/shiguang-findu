@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import ImageWithFallback from './ImageWithFallback.vue'
+import { formatDateTime } from '@/utils/format'
 
 const props = defineProps({
   item: {
@@ -45,7 +45,8 @@ const itemImage = computed(() => {
 })
 
 const itemTime = computed(() => {
-  return props.item.happenTime || props.item.happen_time || props.item.created_at || '时间待补充'
+  const raw = props.item.happenTime || props.item.happen_time || props.item.created_at || ''
+  return formatDateTime(raw)
 })
 
 const isValuable = computed(() => {
@@ -83,6 +84,10 @@ const statusClass = computed(() => {
 })
 
 function goDetail() {
+  if (!props.item?.id) {
+    ElMessage.warning('物品信息不完整')
+    return
+  }
   router.push(`/items/${props.item.id}`)
 }
 </script>
@@ -90,13 +95,7 @@ function goDetail() {
 <template>
   <article class="item-card" @click="goDetail">
     <div class="visual" :class="itemType">
-      <ImageWithFallback
-        v-if="itemImage"
-        :src="itemImage"
-        :fallback-text="itemCategory"
-        :alt="item.name"
-        class="card-image"
-      />
+      <img v-if="itemImage" :src="itemImage" alt="物品照片" />
       <div v-else class="fallback-icon" :class="categoryClass">
         <span></span>
       </div>
@@ -104,26 +103,23 @@ function goDetail() {
       <div class="badge-row">
         <el-tag class="soft-tag" :class="itemType === 'lost' ? 'type-lost' : 'type-found'">{{ itemType === 'lost' ? '失物' : '招领' }}</el-tag>
         <el-tag v-if="isValuable" class="soft-tag valuable-tag">贵重</el-tag>
-        <el-tag v-if="item.match" class="soft-tag match-tag">匹配 {{ item.match.score }}%</el-tag>
       </div>
     </div>
 
     <div class="body">
       <div class="title-row">
-        <h3>{{ item.name }}</h3>
+        <h3>{{ item.name || '未命名物品' }}</h3>
         <span class="status">
           <i :class="statusClass"></i>
           {{ statusText }}
         </span>
       </div>
 
-      <p>{{ item.description }}</p>
-
-      <div v-if="item.match" class="match-reason">{{ item.match.reasons?.join(' · ') }}</div>
+      <p>{{ item.description || '暂无描述' }}</p>
 
       <div class="meta">
         <span class="pin-icon"></span>
-        <span>{{ item.location }}</span>
+        <span>{{ item.location || '位置未知' }}</span>
         <span class="clock-icon"></span>
         <span>{{ itemTime }}</span>
       </div>
@@ -162,8 +158,7 @@ function goDetail() {
   background: radial-gradient(circle at 28% 20%, rgba(255, 255, 255, .82), transparent 30%), linear-gradient(135deg, rgba(79, 124, 255, .24), rgba(108, 99, 255, .16));
 }
 
-.visual img,
-.visual .image-container {
+.visual img {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -171,8 +166,7 @@ function goDetail() {
   transition: .35s ease;
 }
 
-.item-card:hover .visual img,
-.item-card:hover .visual .image-container {
+.item-card:hover .visual img {
   transform: scale(1.05);
 }
 
@@ -208,64 +202,6 @@ function goDetail() {
 .valuable-tag {
   color: #b42318;
   background: rgba(244, 63, 94, .12);
-}
-
-.card-tags .el-tag {
-  font-size: 11px;
-  padding: 0 6px;
-  height: 20px;
-  line-height: 18px;
-}
-
-@media (max-width: 620px) {
-  .item-card {
-    flex-direction: column;
-    min-height: auto;
-  }
-
-  .card-image {
-    width: 100%;
-    height: 160px;
-    flex-shrink: 0;
-  }
-
-  .card-body {
-    padding: 12px;
-  }
-
-  .card-title {
-    font-size: 16px;
-    line-height: 1.4;
-    margin-bottom: 6px;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-
-  .card-desc {
-    font-size: 13px;
-    line-height: 1.5;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    margin-bottom: 8px;
-  }
-
-  .card-meta {
-    font-size: 12px;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .card-tags {
-    margin-top: 8px;
-  }
-
-  .card-actions {
-    padding: 10px 12px;
-  }
 }
 
 .fallback-icon {

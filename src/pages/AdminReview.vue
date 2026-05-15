@@ -1,16 +1,141 @@
 <script setup>
-import { computed, onMounted, ref , watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { formatDateTime } from '@/utils/format'
 import LineIcon from '@/components/LineIcon.vue'
-import ImageWithFallback from '@/components/ImageWithFallback.vue'
-import { getAdminItemsApi, auditAdminItemApi, getAdminClaimsApi, auditAdminClaimApi } from '@/api/admin'
-import { debounce } from '@/utils/debounce'
+import AppLoading from '@/components/AppLoading.vue'
+import {
+  auditAdminClaimApi,
+  auditAdminItemApi,
+  deleteAdminItemApi,
+  getAdminClaimsApi,
+  getAdminItemsApi
+} from '@/api/admin'
+
+const props = defineProps({
+  tab: {
+    type: String,
+    default: 'items'
+  }
+})
 
 const router = useRouter()
 
+const active = ref(props.tab || 'items')
+const loading = ref(false)
+const pageLoading = ref(false)
+const keyword = ref('')
+
 const items = ref([])
 const claims = ref([])
+
+const itemFilter = ref('pending')
+const claimFilter = ref('pending')
+
+const rejectDialog = ref(false)
+const rejectReason = ref('')
+const currentRejectItem = ref(null)
+
+const claimRejectDialog = ref(false)
+const claimRejectReason = ref('')
+const currentRejectClaim = ref(null)
+
+const normalizeList = res => {
+  const payload = res?.data || res
+  const list = payload?.list || payload?.data || payload?.items || payload || []
+
+  return Array.isArray(list) ? list : []
+}
+
+const getFullImageUrl = url => {
+  if (!url) return ''
+  if (/^https?:\/\//.test(url)) return url
+
+  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+
+  if (url.startsWith('/storage/')) return `${baseURL}${url}`
+  if (url.startsWith('storage/')) return `${baseURL}/${url}`
+
+  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
+}
+
+const getAuditStatus = item => item.auditStatus || item.audit_status || 'pending'
+
+const getImage = item => {
+  let url = ''
+
+  if (item.image) {
+    url = item.image
+  } else if (item.image_url) {
+    url = item.image_url
+  } else if (Array.isArray(item.images) && item.images.length) {
+    const firstImage = item.images[0]
+
+    url = typeof firstImage === 'string'
+      ? firstImage
+      : firstImage.image_url || firstImage.url || firstImage.path || ''
+  }
+
+  return getFullImageUrl(url)
+}
+
+const getCategoryName = item => {
+  if (typeof item.category === 'string') return item.category
+  if (item.category?.name) return item.category.name
+
+  return item.category_name || '其他'
+}
+
+const getHappenTime = item => formatDateTime(item.happenTime || item.happen_time || item.created_at || '')
+const getUserId = item => item.userId || item.user_id || item.user?.id || '-'
+const isValuable = item => Boolean(item.isValuable ?? item.is_valuable)
+
+const auditText = status => {
+  if (status === 'approved') return '已通过'
+  if (status === 'rejected') return '已拒绝'
+
+  return '待审核'
+}
+
+const auditType = status => {
+  if (status === 'approved') return 'success'
+  if (status === 'rejected') return 'danger'
+
+  return 'warning'
+}
+
+const getClaimItem = claim => claim.item || claim.lost_found_item || claim.lostFoundItem || null
+const getClaimType = claim => claim.claimType || claim.claim_type || 'claim'
+const getClaimMethod = claim => claim.method || claim.pickup_method || 'offline'
+const getClaimProofText = claim => claim.proofText || claim.proof_text || '暂无证明描述'
+const getClaimCreatedAt = claim => formatDateTime(claim.createdAt || claim.created_at || '')
+const getClaimDeliveryAddress = claim => claim.deliveryAddress || claim.delivery_address || ''
+const getClaimAuditReason = claim => claim.auditReason || claim.audit_reason || claim.reject_reason || ''
+
+const claimTypeText = type => {
+  if (type === 'wrong_return') return '领错归还'
+  if (type === 'clue') return '线索提交'
+
+  return '认领申请'
+}
+
+const claimStatusText = status => {
+  if (['approved', 'handover_pending'].includes(status)) return '待交接'
+  if (status === 'completed') return '已完成'
+  if (status === 'rejected') return '已拒绝'
+  if (status === 'wrong_return_pending') return '归还待审核'
+
+  return '待核验'
+}
+
+const claimStatusType = status => {
+  if (['approved', 'handover_pending', 'completed'].includes(status)) return 'success'
+  if (status === 'rejected') return 'danger'
+
+  return 'warning'
+}
+
 const itemPendingCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'pending').length)
 const itemApprovedCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'approved').length)
 const itemRejectedCount = computed(() => items.value.filter(item => getAuditStatus(item) === 'rejected').length)
@@ -23,12 +148,9 @@ const claimCompletedCount = computed(() => claims.value.filter(claim => claim.st
 const filteredItems = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
 
-  let source = []
-  if (itemFilter.value === 'all') {
-    source = items.value
-  } else {
-    source = items.value.filter(item => getAuditStatus(item) === itemFilter.value)
-  }
+  const source = itemFilter.value === 'all'
+    ? items.value
+    : items.value.filter(item => getAuditStatus(item) === itemFilter.value)
 
   if (!kw) return source
 
@@ -84,222 +206,161 @@ const emptyText = computed(() => {
   }
 })
 
-const itemFilter = ref('pending')
-const claimFilter = ref('pending')
-const props = defineProps({
-  tab: {
-    type: String,
-    default: 'items'
-  }
-})
-
-watch(
-  () => props.tab,
-  value => {
-    if (value === 'claims') {
-      active.value = 'claims'
-    } else {
-      active.value = 'items'
-    }
-  }
-)
-
-const active = ref(props.tab === 'claims' ? 'claims' : 'items')
-const keyword = ref('')
-const loading = ref(false)
-
-const rejectDialog = ref(false)
-const rejectTarget = ref(null)
-const rejectReason = ref('')
-
-const normalizeList = res => {
-  const payload = res?.data || res
-  const list = payload?.list || payload?.data || payload?.items || payload || []
-
-  return Array.isArray(list) ? list : []
+const loadItems = async () => {
+  const res = await getAdminItemsApi()
+  items.value = normalizeList(res)
 }
 
-const getImage = item => {
-  if (item.image) return item.image
-  if (item.image_url) return item.image_url
-
-  if (Array.isArray(item.images) && item.images.length) {
-    const firstImage = item.images[0]
-
-    return typeof firstImage === 'string' ? firstImage : firstImage.image_url || firstImage.url || ''
-  }
-
-  return ''
-}
-
-const getCategoryName = item => {
-  if (typeof item.category === 'string') return item.category
-  if (item.category?.name) return item.category.name
-
-  return item.category_name || '其他'
-}
-
-const getHappenTime = item => item.happenTime || item.happen_time || item.created_at || '时间待补充'
-const getUserId = item => item.userId || item.user_id || item.user?.id || '-'
-const getAuditStatus = item => item.auditStatus || item.audit_status || 'pending'
-const getRejectReason = item => item.rejectReason || item.reject_reason || ''
-const isValuable = item => Boolean(item.isValuable || item.is_valuable)
-
-const auditType = status => {
-  if (status === 'approved') return 'success'
-  if (status === 'rejected') return 'danger'
-
-  return 'warning'
-}
-
-const getClaimItem = claim => claim.item || claim.lost_found_item || claim.lostFoundItem || null
-const getClaimType = claim => claim.claimType || claim.claim_type || 'claim'
-const getClaimMethod = claim => claim.method || claim.pickup_method || 'offline'
-const getClaimProofText = claim => claim.proofText || claim.proof_text || ''
-const getClaimCreatedAt = claim => claim.createdAt || claim.created_at || '时间待补充'
-const getClaimDeliveryAddress = claim => claim.deliveryAddress || claim.delivery_address || ''
-const getClaimScore = claim => claim.score || claim.match_score || 0
-
-const auditText = status => {
-  switch (status) {
-    case 'approved':
-      return '已通过'
-    case 'rejected':
-      return '已拒绝'
-    default:
-      return '待审核'
-  }
-}
-
-const claimTypeText = type => {
-  switch (type) {
-    case 'wrong_return':
-      return '领错归还'
-    case 'clue':
-      return '线索提交'
-    default:
-      return '认领申请'
-  }
-}
-
-const claimStatusText = status => {
-  switch (status) {
-    case 'approved':
-    case 'handover_pending':
-      return '待交接'
-    case 'completed':
-      return '已完成'
-    case 'rejected':
-      return '已拒绝'
-    default:
-      return '待核验'
-  }
-}
-
-const claimStatusType = status => {
-  switch (status) {
-    case 'approved':
-    case 'handover_pending':
-    case 'completed':
-      return 'success'
-    case 'rejected':
-      return 'danger'
-    default:
-      return 'warning'
-  }
+const loadClaims = async () => {
+  const res = await getAdminClaimsApi()
+  claims.value = normalizeList(res)
 }
 
 const load = async () => {
   loading.value = true
+  pageLoading.value = true
 
   try {
-    const [itemRes, claimRes] = await Promise.all([
-      getAdminItemsApi(),
-      getAdminClaimsApi()
+    await Promise.all([
+      loadItems(),
+      loadClaims()
     ])
-
-    items.value = normalizeList(itemRes)
-    claims.value = normalizeList(claimRes)
-  } catch {
   } finally {
     loading.value = false
+    pageLoading.value = false
   }
 }
 
-const audit = async (item, status) => {
-  try {
-    await auditAdminItemApi(item.id, {
-      auditStatus: status,
-      rejectReason: status === 'rejected' ? '信息不完整或疑似重复' : ''
-    })
+const audit = async (item, auditStatus, rejectReason = '') => {
+  await auditAdminItemApi(item.id, {
+    auditStatus,
+    rejectReason
+  })
 
-    ElMessage.success(status === 'approved' ? '已通过' : '已拒绝')
-    load()
-  } catch {
-  }
+  ElMessage.success(auditStatus === 'approved' ? '已通过该发布信息' : '已拒绝该发布信息')
+  await loadItems()
 }
 
 const openReject = item => {
-  rejectTarget.value = item
-  rejectReason.value = getRejectReason(item)
+  currentRejectItem.value = item
+  rejectReason.value = ''
   rejectDialog.value = true
 }
 
 const confirmReject = async () => {
-  if (!rejectReason.value.trim()) return ElMessage.warning('请填写拒绝原因')
+  if (!currentRejectItem.value) return
 
-  try {
-    await auditAdminItemApi(rejectTarget.value.id, {
-      auditStatus: 'rejected',
-      rejectReason: rejectReason.value
-    })
-
-    ElMessage.success('已拒绝并记录原因')
-    rejectDialog.value = false
-    load()
-  } catch {
+  if (!rejectReason.value.trim()) {
+    ElMessage.warning('请填写拒绝原因')
+    return
   }
+
+  await audit(currentRejectItem.value, 'rejected', rejectReason.value.trim())
+
+  rejectDialog.value = false
+  currentRejectItem.value = null
+  rejectReason.value = ''
 }
 
 const markDuplicate = async item => {
+  await ElMessageBox.confirm(`确认将「${item.name}」标记为疑似重复并拒绝？`, '疑似重复确认', {
+    type: 'warning',
+    confirmButtonText: '确认拒绝',
+    cancelButtonText: '取消'
+  })
+
+  await audit(item, 'rejected', '疑似重复发布，请合并或补充更明确的信息')
+}
+
+const removeItem = async item => {
   try {
-    await auditAdminItemApi(item.id, {
-      auditStatus: 'rejected',
-      rejectReason: '疑似重复发布，请合并或补充说明后重新提交'
+    await ElMessageBox.confirm(`确认删除「${item.name}」？删除后无法恢复。`, '删除确认', {
+      type: 'danger',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消'
     })
 
-    ElMessage.success('已标记为疑似重复')
-    load()
+    await deleteAdminItemApi(item.id)
+    ElMessage.success('已删除该发布信息')
+    await loadItems()
   } catch {
+    // 用户取消
   }
 }
 
-const auditClaimRow = async (claim, status) => {
-  try {
-    await auditAdminClaimApi(claim.id, {
-      status,
-      remark: status === 'rejected' ? '证明细节不足或身份核验未通过' : '核验通过，进入交接流程'
-    })
+const auditClaimRow = async (claim, status, auditReason = '') => {
+  const isApprove = status === 'approved'
 
-    ElMessage.success(status === 'approved' ? '认领申请已通过，已进入运营处理的交接队列' : '认领申请已驳回')
-    load()
-  } catch {
+  await auditAdminClaimApi(claim.id, {
+    status,
+    auditReason: auditReason || (isApprove
+      ? '证明材料初步通过，进入交接流程。实际领取仍需核验学生证、校园卡或其他校园身份凭证。'
+      : '证明材料不足或信息不一致')
+  })
+
+  ElMessage.success(isApprove ? '认领申请已通过，等待交接核验' : '认领申请已驳回')
+  await loadClaims()
+}
+
+const approveClaim = async claim => {
+  await ElMessageBox.confirm(
+    '核验通过仅表示证明材料初步通过。实际交接时仍需核验学生证、校园卡或其他校园身份凭证；邮寄处理前也需核验注册邮箱、认领联系电话、校园身份信息和物品归属证明。',
+    '确认核验通过',
+    {
+      type: 'warning',
+      confirmButtonText: '确认通过',
+      cancelButtonText: '取消'
+    }
+  )
+
+  await auditClaimRow(claim, 'approved')
+}
+
+const openRejectClaim = claim => {
+  currentRejectClaim.value = claim
+  claimRejectReason.value = ''
+  claimRejectDialog.value = true
+}
+
+const confirmRejectClaim = async () => {
+  if (!currentRejectClaim.value) return
+
+  if (!claimRejectReason.value.trim()) {
+    ElMessage.warning('请填写驳回原因')
+    return
   }
+
+  await auditClaimRow(currentRejectClaim.value, 'rejected', claimRejectReason.value.trim())
+
+  claimRejectDialog.value = false
+  currentRejectClaim.value = null
+  claimRejectReason.value = ''
 }
 
 const goItem = claim => {
   const item = getClaimItem(claim)
 
-  if (item?.id) {
-    const itemId = typeof item.id === 'object' ? item.id.id : item.id
-    router.push(`/items/${itemId}`)
+  if (!item?.id) {
+    ElMessage.warning('关联物品不存在或已删除')
+    return
   }
+
+  router.push(`/items/${item.id}`)
 }
+
+watch(
+  () => props.tab,
+  value => {
+    active.value = value || 'items'
+  }
+)
 
 onMounted(load)
 </script>
 
 <template>
+  <AppLoading :visible="pageLoading" text="加载审核列表..." />
+
   <div class="review-page fade-up">
     <el-tabs v-model="active" class="admin-tabs">
       <el-tab-pane label="内容审核" name="items">
@@ -338,7 +399,7 @@ onMounted(load)
 
         <section class="review-list">
           <div v-for="item in filteredItems" :key="item.id" class="review-row glass-card">
-            <ImageWithFallback v-if="getImage(item)" :src="getImage(item)" :fallback-text="getCategoryName(item)" :alt="item.name" />
+            <img v-if="getImage(item)" :src="getImage(item)" alt="物品图" />
 
             <div v-else class="placeholder">
               <LineIcon name="package" />
@@ -365,6 +426,7 @@ onMounted(load)
               <el-button type="success" :disabled="getAuditStatus(item) === 'approved'" @click="audit(item, 'approved')">通过</el-button>
               <el-button type="danger" plain :disabled="getAuditStatus(item) === 'rejected'" @click="openReject(item)">拒绝</el-button>
               <el-button plain type="warning" @click="markDuplicate(item)">疑似重复</el-button>
+              <el-button plain type="info" @click="removeItem(item)">删除</el-button>
             </div>
           </div>
 
@@ -411,9 +473,9 @@ onMounted(load)
 
         <section class="review-list">
           <div v-for="claim in filteredClaims" :key="claim.id" class="review-row glass-card claim-review">
-            <div class="score-ring" :class="getClaimScore(claim) >= 80 ? 'good' : getClaimScore(claim) >= 60 ? 'mid' : 'bad'">
-              <b>{{ getClaimScore(claim) }}%</b>
-              <span>匹配度</span>
+            <div class="claim-icon">
+              <LineIcon name="user-check" tone="green" />
+              <span>{{ claimTypeText(getClaimType(claim)) }}</span>
             </div>
 
             <div class="review-body">
@@ -426,17 +488,25 @@ onMounted(load)
               <p>{{ getClaimProofText(claim) }}</p>
 
               <div class="meta">
-                {{ getClaimMethod(claim) === 'delivery' ? '邮寄领取' : '线下领取' }} · {{ claim.phone }} · {{ getClaimCreatedAt(claim) }}
+                {{ getClaimMethod(claim) === 'delivery' ? '邮寄领取' : '线下领取' }} · {{ claim.phone || '未填写联系电话' }} · {{ getClaimCreatedAt(claim) }}
+              </div>
+
+              <div class="identity-line">
+                通过审核只代表证明材料初步通过；线下交接仍需核验学生证、校园卡或其他校园身份凭证，邮寄前需核验注册邮箱、认领联系电话、校园身份信息和物品归属证明。
               </div>
 
               <div v-if="getClaimDeliveryAddress(claim)" class="privacy-line">
-                收件地址：已加密保存，仅核验通过后用于邮寄交接。
+                收件地址：仅核验通过后用于邮寄交接，不在公开页面展示。
+              </div>
+
+              <div v-if="getClaimAuditReason(claim)" class="reason-line">
+                审核说明：{{ getClaimAuditReason(claim) }}
               </div>
             </div>
 
             <div class="actions">
-              <el-button type="success" :disabled="['approved', 'handover_pending', 'completed'].includes(claim.status)" @click="auditClaimRow(claim, 'approved')">核验通过</el-button>
-              <el-button type="danger" plain :disabled="claim.status === 'rejected' || claim.status === 'completed'" @click="auditClaimRow(claim, 'rejected')">驳回</el-button>
+              <el-button type="success" :disabled="['approved', 'handover_pending', 'completed'].includes(claim.status)" @click="approveClaim(claim)">核验通过</el-button>
+              <el-button type="danger" plain :disabled="claim.status === 'rejected' || claim.status === 'completed'" @click="openRejectClaim(claim)">驳回</el-button>
               <el-button plain @click="goItem(claim)">查看关联信息</el-button>
             </div>
           </div>
@@ -456,8 +526,23 @@ onMounted(load)
         <el-button type="danger" @click="confirmReject">确认拒绝</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="claimRejectDialog" title="填写认领驳回原因" width="480px">
+      <el-input
+        v-model="claimRejectReason"
+        type="textarea"
+        :rows="4"
+        placeholder="例如：证明材料不足、物品细节不一致、身份信息无法核验、联系方式无法确认等"
+      />
+
+      <template #footer>
+        <el-button @click="claimRejectDialog = false">取消</el-button>
+        <el-button type="danger" @click="confirmRejectClaim">确认驳回</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
+
 <style scoped>
 .review-overview {
   display: grid;
@@ -540,6 +625,21 @@ onMounted(load)
   background: #f8fafc;
 }
 
+.claim-icon {
+  width: 106px;
+  height: 94px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 20px;
+  background: rgba(0, 184, 148, .08);
+  color: #047857;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .title {
   display: flex;
   align-items: center;
@@ -562,11 +662,29 @@ onMounted(load)
   color: #8b95a7;
 }
 
-.privacy-line {
+.privacy-line,
+.identity-line,
+.reason-line {
   margin-top: 8px;
   padding: 8px 12px;
   border-radius: 14px;
+  line-height: 1.65;
+}
+
+.privacy-line {
   background: rgba(79, 124, 255, .06);
+}
+
+.identity-line {
+  background: rgba(255, 159, 67, .10);
+  color: #92400e;
+  font-size: 13px;
+}
+
+.reason-line {
+  background: rgba(244, 63, 94, .08);
+  color: #be123c;
+  font-size: 13px;
 }
 
 .actions {
@@ -575,38 +693,6 @@ onMounted(load)
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-}
-
-.score-ring {
-  width: 90px;
-  height: 90px;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  border-radius: 999px;
-  background: conic-gradient(var(--primary) 0 80%, #eef2f7 0);
-}
-
-.score-ring b {
-  display: block;
-}
-
-.score-ring span {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.score-ring.good {
-  background: conic-gradient(var(--success) 0 86%, #eef2f7 0);
-}
-
-.score-ring.mid {
-  background: conic-gradient(var(--warning) 0 66%, #eef2f7 0);
-}
-
-.score-ring.bad {
-  background: conic-gradient(var(--danger) 0 45%, #eef2f7 0);
 }
 
 .empty-review {
@@ -628,7 +714,6 @@ onMounted(load)
 
   .toolbar {
     grid-template-columns: 1fr;
-    gap: 14px;
   }
 
   .review-row {
@@ -637,23 +722,6 @@ onMounted(load)
 
   .actions {
     justify-content: flex-start;
-  }
-
-  :deep(.el-radio-group) {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  :deep(.el-radio-button) {
-    flex: 1;
-    min-width: calc(50% - 4px);
-  }
-
-  :deep(.el-radio-button__inner) {
-    width: 100%;
-    text-align: center;
-    border-radius: 6px;
   }
 }
 </style>

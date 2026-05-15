@@ -3,7 +3,7 @@ import request from './request'
 /**
  * 第一优先级：管理员后台首页统计
  * 文档接口：GET /api/admin/dashboard
- * 用途：管理员进入后台后的总览数据，如待审核、待认领、滞留、风险用户等。
+ * 用途：管理员进入后台后的总览数据，如待审核信息、待核验认领、通知待处理等。
  */
 export const getAdminDashboardApi = () => {
   return request.get('/api/admin/dashboard')
@@ -24,6 +24,10 @@ export const getAdminItemsApi = params => {
  * 第一优先级：管理员审核发布信息
  * 文档接口：PUT /api/admin/lost-found/items/{id}/audit
  * 用途：通过或驳回用户发布的失物 / 招领信息。
+ *
+ * 字段：
+ * - audit_status：approved / rejected
+ * - reject_reason：驳回原因
  */
 export const auditAdminItemApi = (id, data) => {
   return request.put(`/api/admin/lost-found/items/${id}/audit`, {
@@ -33,9 +37,22 @@ export const auditAdminItemApi = (id, data) => {
 }
 
 /**
+ * 第一优先级：管理员删除发布信息
+ * 文档接口：DELETE /api/admin/lost-found/items/{id}
+ * 用途：管理员删除违规或重复的失物 / 招领信息。
+ */
+export const deleteAdminItemApi = id => {
+  return request.delete(`/api/admin/lost-found/items/${id}`)
+}
+
+/**
  * 第一优先级：管理员获取认领申请列表
  * 文档接口：GET /api/admin/claims
- * 用途：认领审核页，查看用户提交的认领、线索、领错归还申请。
+ * 用途：认领审核页，查看用户提交的认领申请和线索说明。
+ *
+ * 注意：
+ * 第一优先级只处理 claim / clue。
+ * wrong_return 属于第二优先级“领错归还”，不要混进第一阶段认领审核。
  */
 export const getAdminClaimsApi = params => {
   return request.get('/api/admin/claims', {
@@ -48,24 +65,24 @@ export const getAdminClaimsApi = params => {
  * 文档接口：PUT /api/admin/claims/{id}/audit
  * 用途：通过或驳回认领申请。
  *
- * 注意：
- * 当前前端传 remark。
- * 如果后端字段按文档数据库字段设计为 audit_reason，需要和后端统一字段名。
+ * 字段：
+ * - status：approved / rejected
+ * - audit_reason：审核意见 / 驳回原因
  */
 export const auditAdminClaimApi = (id, data) => {
   return request.put(`/api/admin/claims/${id}/audit`, {
     status: data.status,
-    remark: data.remark || ''
+    audit_reason: data.auditReason || ''
   })
 }
 
 /**
  * 第二优先级：创建交接记录
  * 文档接口：POST /api/handover-records
- * 用途：管理员或工作人员完成线下 / 邮寄交接后生成交接记录。
+ * 用途：管理员完成线下 / 邮寄交接后生成交接记录。
  *
- * 当前用于替代非文档接口：
- * POST /api/admin/handover/claims/{id}/complete
+ * 注意：
+ * 工作人员职责已经并入 admin，不再单独使用 staff 角色。
  */
 export const createHandoverRecordApi = data => {
   return request.post('/api/handover-records', {
@@ -94,13 +111,13 @@ export const getAdminOverdueItemsApi = params => {
  * 文档接口：PUT /api/admin/overdue-items/{id}/transfer
  * 用途：管理员登记滞留物品移交去向。
  *
- * 注意：
- * 当前前端传 target / remark。
- * 如果后端按数据库字段设计为 handover_target / handover_remark，需要和后端统一字段名。
+ * 字段：
+ * - handover_target：移交对象
+ * - remark：移交备注
  */
 export const transferOverdueItemApi = (id, data) => {
   return request.put(`/api/admin/overdue-items/${id}/transfer`, {
-    target: data.target,
+    handover_target: data.handoverTarget || data.target,
     remark: data.remark || ''
   })
 }
@@ -149,8 +166,7 @@ export const createDisputeApi = data => {
   return request.post('/api/admin/disputes', {
     item_id: data.itemId,
     claim_id: data.claimId,
-    reason: data.reason,
-    remark: data.remark || ''
+    reason: data.reason
   })
 }
 
@@ -215,7 +231,7 @@ export const auditAdminVerificationApi = (id, data) => {
 }
 
 /**
- * 停用接口：以下接口不是当前需求文档明确接口。
+ * 停用接口：以下接口不是当前 V2.9 需求文档明确接口。
  * 当前只保留注释说明，避免后续误接。
  */
 

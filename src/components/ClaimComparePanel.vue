@@ -13,11 +13,15 @@ const props = defineProps({
 
 const router = useRouter()
 
-const proofImage = ref('')
-const proofFile = ref(null)
+const proofImages = ref([])
+const proofFiles = ref([])
 const proofText = ref('')
 
 const itemType = computed(() => props.item?.type || 'found')
+
+const actionText = computed(() => {
+  return itemType.value === 'found' ? '提交认领申请' : '提交线索'
+})
 
 const itemImage = computed(() => {
   if (props.item?.image) return props.item.image
@@ -39,7 +43,7 @@ const itemText = computed(() => {
 const score = computed(() => {
   let value = 28
 
-  if (proofImage.value) value += 28
+  if (proofImages.value.length) value += 28
   if (proofText.value.length >= 20) value += 24
 
   const hits = proofText.value
@@ -61,8 +65,8 @@ const scoreText = computed(() => {
 })
 
 const reset = () => {
-  proofImage.value = ''
-  proofFile.value = null
+  proofImages.value = []
+  proofFiles.value = []
   proofText.value = ''
 }
 
@@ -81,7 +85,7 @@ const goClaim = () => {
         <p>用照片和细节描述减少误认、冒领，让交接更可信。</p>
       </div>
 
-      <el-tag class="soft-tag">Beta</el-tag>
+      <el-tag class="soft-tag">辅助比对</el-tag>
     </div>
 
     <div class="compare-grid">
@@ -96,13 +100,26 @@ const goClaim = () => {
 
       <div class="compare-side">
         <span>{{ itemType === 'found' ? '我的证明照片' : '我提供的线索照片' }}</span>
-        <PhotoUploader v-model="proofImage" v-model:file="proofFile" title="上传比对照片" desc="例如备用照片、购买记录、同款细节或现场线索" />
+
+        <PhotoUploader
+          v-model="proofImages"
+          v-model:file="proofFiles"
+          title="上传比对照片"
+          desc="例如备用照片、购买记录、同款细节或现场线索"
+        />
       </div>
     </div>
 
-    <el-input v-model="proofText" type="textarea" :rows="4" maxlength="180" show-word-limit placeholder="请填写只有真正失主更可能知道的细节：颜色、划痕、贴纸、挂件、文件夹名称、校园卡姓名等。" />
+    <el-input
+      v-model="proofText"
+      type="textarea"
+      :rows="4"
+      maxlength="180"
+      show-word-limit
+      placeholder="请填写只有真正失主更可能知道的细节：颜色、划痕、贴纸、挂件、文件夹名称、校园卡姓名等。"
+    />
 
-    <div class="score-box" v-if="proofText || proofImage">
+    <div v-if="proofText || proofImages.length" class="score-box">
       <div>
         <b>可信度预估</b>
         <p>{{ scoreText }}</p>
@@ -112,8 +129,8 @@ const goClaim = () => {
     </div>
 
     <div class="claim-actions">
-      <el-button @click="reset">清空</el-button>
-      <el-button type="primary" @click="goClaim">进入正式认领流程</el-button>
+      <el-button class="claim-clear-btn" @click="reset">清空</el-button>
+      <el-button type="primary" class="claim-submit-btn" @click="goClaim">{{ actionText }}</el-button>
     </div>
   </div>
 </template>
@@ -145,18 +162,24 @@ p {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  align-items: stretch;
   margin-bottom: 16px;
+}
+
+.compare-side {
+  display: flex;
+  flex-direction: column;
 }
 
 .compare-side > span {
   display: block;
+  margin-bottom: 8px;
   color: var(--muted);
   font-size: 13px;
-  margin-bottom: 8px;
 }
 
 .compare-photo {
-  min-height: 220px;
+  height: 260px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -168,10 +191,34 @@ p {
 .compare-photo img {
   width: 100%;
   height: 100%;
-  min-height: 220px;
-  max-height: 280px;
-  object-fit: cover;
   display: block;
+  object-fit: contain;
+  background: linear-gradient(135deg, #f8fbff, #eef4ff);
+}
+
+.compare-side :deep(.photo-uploader) {
+  height: 260px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.compare-side :deep(.upload-grid) {
+  height: 100%;
+}
+
+.compare-side :deep(.upload-empty),
+.compare-side :deep(.photo-preview) {
+  height: 100%;
+  min-height: 0;
+}
+
+.compare-side :deep(.photo-preview img) {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  object-fit: cover;
 }
 
 .score-box {
@@ -193,13 +240,50 @@ p {
 .claim-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 16px;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.claim-clear-btn {
+  min-width: 88px;
+  height: 40px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.claim-submit-btn {
+  min-width: 136px;
+  height: 40px;
+  border-radius: 999px;
+  font-weight: 900;
 }
 
 @media (max-width: 760px) {
   .compare-grid {
     grid-template-columns: 1fr;
+  }
+
+  .compare-photo,
+  .compare-side :deep(.photo-uploader),
+  .compare-side :deep(.upload-empty),
+  .compare-side :deep(.photo-preview),
+  .compare-side :deep(.photo-preview img) {
+    height: 230px;
+    min-height: 0;
+    max-height: 230px;
+  }
+
+  .compare-side :deep(.photo-preview img) {
+    object-fit: cover;
+  }
+
+  .claim-actions {
+    justify-content: stretch;
+  }
+
+  .claim-actions .el-button {
+    flex: 1;
   }
 }
 </style>

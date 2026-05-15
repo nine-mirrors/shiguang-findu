@@ -6,7 +6,15 @@ import request from './request'
  *
  * 用途：
  * - 用户进入实名认证页时，查看当前认证状态
- * - 展示 basic / full / pending / approved / rejected 等状态
+ * - 展示用户当前认证等级和认证申请状态
+ *
+ * 字段边界：
+ * - verification_level：用户认证等级，取值 none / basic / full
+ * - status：认证申请审核状态，取值 pending / approved / rejected
+ *
+ * 注意：
+ * - verification_level 不是系统角色
+ * - role 仍然只允许 student / admin
  *
  * 当前策略：
  * - 页面可以保留
@@ -26,7 +34,7 @@ export const getMyVerificationApi = () => {
  * - 后续用于贵重物品认领、邮寄领取、争议处理等增强场景
  *
  * 请求字段：
- * - level：basic / full
+ * - level：认证等级，basic / full
  * - real_name：真实姓名
  * - student_no：学号 / 工号
  * - phone：手机号
@@ -35,7 +43,7 @@ export const getMyVerificationApi = () => {
  * 当前策略：
  * - 先封装接口
  * - 页面保留
- * - 后端如果第一阶段时间紧，可以暂缓实现
+ * - 后端第一阶段可以暂缓实现
  */
 export const submitVerificationApi = data => {
   return request.post('/api/verifications', {
