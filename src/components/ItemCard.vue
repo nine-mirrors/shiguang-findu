@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { formatDateTime } from '@/utils/format'
 
 const props = defineProps({
   item: {
@@ -44,7 +45,8 @@ const itemImage = computed(() => {
 })
 
 const itemTime = computed(() => {
-  return props.item.happenTime || props.item.happen_time || props.item.created_at || '时间待补充'
+  const raw = props.item.happenTime || props.item.happen_time || props.item.created_at || ''
+  return formatDateTime(raw)
 })
 
 const isValuable = computed(() => {
@@ -82,6 +84,10 @@ const statusClass = computed(() => {
 })
 
 function goDetail() {
+  if (!props.item?.id) {
+    ElMessage.warning('物品信息不完整')
+    return
+  }
   router.push(`/items/${props.item.id}`)
 }
 </script>
@@ -97,26 +103,23 @@ function goDetail() {
       <div class="badge-row">
         <el-tag class="soft-tag" :class="itemType === 'lost' ? 'type-lost' : 'type-found'">{{ itemType === 'lost' ? '失物' : '招领' }}</el-tag>
         <el-tag v-if="isValuable" class="soft-tag valuable-tag">贵重</el-tag>
-        <el-tag v-if="item.match" class="soft-tag match-tag">匹配 {{ item.match.score }}%</el-tag>
       </div>
     </div>
 
     <div class="body">
       <div class="title-row">
-        <h3>{{ item.name }}</h3>
+        <h3>{{ item.name || '未命名物品' }}</h3>
         <span class="status">
           <i :class="statusClass"></i>
           {{ statusText }}
         </span>
       </div>
 
-      <p>{{ item.description }}</p>
-
-      <div v-if="item.match" class="match-reason">{{ item.match.reasons?.join(' · ') }}</div>
+      <p>{{ item.description || '暂无描述' }}</p>
 
       <div class="meta">
         <span class="pin-icon"></span>
-        <span>{{ item.location }}</span>
+        <span>{{ item.location || '位置未知' }}</span>
         <span class="clock-icon"></span>
         <span>{{ itemTime }}</span>
       </div>

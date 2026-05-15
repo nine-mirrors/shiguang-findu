@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getNotificationsApi, readNotificationApi, readAllNotificationsApi } from '@/api/notification'
+import { formatDateTime } from '@/utils/format'
 import LineIcon from '@/components/LineIcon.vue'
 
 const router = useRouter()
@@ -41,16 +42,7 @@ const getContent = item => {
 
 const getCreatedAt = item => {
   const value = item.createdAt || item.created_at || item.created_time || ''
-
-  if (!value) return '时间待补充'
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) return value
-
-  const pad = number => String(number).padStart(2, '0')
-
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return formatDateTime(value)
 }
 
 const getNoticeTypeText = type => {
@@ -114,8 +106,20 @@ const getRelatedClaimId = item => {
   return item.claim_id || item.claimId || payload.claim_id || payload.claimId || ''
 }
 
+const getTargetType = item => {
+  const payload = getNoticePayload(item)
+
+  return item.target_type || item.targetType || payload.target_type || payload.targetType || 'item'
+}
+
+const getTargetId = item => {
+  const payload = getNoticePayload(item)
+
+  return item.target_id || item.targetId || payload.target_id || payload.targetId || getRelatedItemId(item) || getRelatedClaimId(item) || ''
+}
+
 const hasRelatedTarget = item => {
-  return Boolean(getRelatedItemId(item) || getRelatedClaimId(item))
+  return Boolean(getTargetId(item))
 }
 
 const load = async () => {
@@ -163,15 +167,25 @@ const readAll = async () => {
 const goRelatedTarget = () => {
   if (!currentNotice.value) return
 
-  const itemId = getRelatedItemId(currentNotice.value)
+  const targetType = getTargetType(currentNotice.value)
+  const targetId = getTargetId(currentNotice.value)
 
-  if (itemId) {
-    router.push(`/items/${itemId}`)
-    detailVisible.value = false
+  if (!targetId) {
+    ElMessage.info('该通知暂无可跳转的关联信息')
     return
   }
 
-  ElMessage.info('该通知暂无可跳转的关联信息')
+  detailVisible.value = false
+
+  switch (targetType) {
+    case 'claim':
+      router.push(`/my-posts?tab=claims`)
+      break
+    case 'item':
+    default:
+      router.push(`/items/${targetId}`)
+      break
+  }
 }
 
 onMounted(load)

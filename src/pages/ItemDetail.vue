@@ -5,18 +5,23 @@ import { ElMessage } from 'element-plus'
 import { getItemDetailApi, getItemsApi } from '@/api/item'
 import { getFavoritesApi, addFavoriteApi, removeFavoriteApi } from '@/api/favorite'
 import { findSimilarItems } from '@/utils/match'
+import { formatDateTime } from '@/utils/format'
 import { useUserStore } from '@/stores/user'
 import StatusTimeline from '@/components/StatusTimeline.vue'
 import ItemCard from '@/components/ItemCard.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
 import ClaimComparePanel from '@/components/ClaimComparePanel.vue'
+import AppLoading from '@/components/AppLoading.vue'
 
 const route = useRoute()
 const userStore = useUserStore()
 
+const pageLoading = ref(true)
 const item = ref(null)
 const similar = ref([])
 const favorite = ref(false)
+const previewVisible = ref(false)
+const previewImage = ref('')
 
 const itemType = computed(() => item.value?.type || 'lost')
 
@@ -32,26 +37,39 @@ const itemCategory = computed(() => {
   return item.value?.category_name || '其他'
 })
 
+const getFullImageUrl = url => {
+  if (!url) return ''
+  if (/^https?:\/\//.test(url)) return url
+
+  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+
+  if (url.startsWith('/storage/')) return `${baseURL}${url}`
+  if (url.startsWith('storage/')) return `${baseURL}/${url}`
+
+  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
+}
+
 const itemImage = computed(() => {
+  let url = ''
+
   if (item.value?.image) {
-    return item.value.image
-  }
-
-  if (item.value?.image_url) {
-    return item.value.image_url
-  }
-
-  if (Array.isArray(item.value?.images) && item.value.images.length) {
+    url = item.value.image
+  } else if (item.value?.image_url) {
+    url = item.value.image_url
+  } else if (Array.isArray(item.value?.images) && item.value.images.length) {
     const firstImage = item.value.images[0]
 
-    return typeof firstImage === 'string' ? firstImage : firstImage.image_url || firstImage.url || ''
+    url = typeof firstImage === 'string'
+      ? firstImage
+      : firstImage.image_url || firstImage.url || firstImage.path || ''
   }
 
-  return ''
+  return getFullImageUrl(url)
 })
 
 const itemTime = computed(() => {
-  return item.value?.happenTime || item.value?.happen_time || item.value?.created_at || '时间待补充'
+  const raw = item.value?.happenTime || item.value?.happen_time || item.value?.created_at || ''
+  return formatDateTime(raw)
 })
 
 const hasPhoto = computed(() => {
@@ -76,6 +94,10 @@ const statusText = computed(() => {
   return itemType.value === 'lost' ? '寻找中' : '待认领'
 })
 
+const actionText = computed(() => {
+  return itemType.value === 'found' ? '我要认领' : '我有线索'
+})
+
 const maskedContact = computed(() => {
   const text = String(item.value?.contact || '')
 
@@ -85,7 +107,9 @@ const maskedContact = computed(() => {
 })
 
 function normalizeItem(res) {
-  return res?.data || res || null
+  const payload = res?.data || res
+
+  return payload?.item || payload || null
 }
 
 function normalizeItems(res) {
@@ -128,19 +152,27 @@ async function loadFavorite() {
 }
 
 async function load() {
-  const res = await getItemDetailApi(route.params.id)
+  pageLoading.value = true
 
-  item.value = normalizeItem(res)
+  try {
+    const res = await getItemDetailApi(route.params.id)
 
-  if (!item.value) {
-    ElMessage.error('未找到该物品信息')
-    return
+    item.value = normalizeItem(res)
+
+    if (!item.value) {
+      ElMessage.error('未找到该物品信息')
+      return
+    }
+
+    await Promise.all([
+      loadSimilar(),
+      loadFavorite()
+    ])
+  } catch {
+    ElMessage.error('加载物品详情失败')
+  } finally {
+    pageLoading.value = false
   }
-
-  await Promise.all([
-    loadSimilar(),
-    loadFavorite()
-  ])
 }
 
 async function toggleFav() {
@@ -160,16 +192,29 @@ async function toggleFav() {
   }
 }
 
+function openPreview(src) {
+  previewImage.value = src
+  previewVisible.value = true
+}
+
+function closePreview() {
+  previewVisible.value = false
+  previewImage.value = ''
+}
+
 onMounted(load)
 
 watch(() => route.params.id, load)
 </script>
 
 <template>
+  <AppLoading :visible="pageLoading" text="加载物品详情..." />
+
   <div class="detail-page container" v-if="item">
     <section class="detail-hero fade-up">
       <div class="detail-visual" :class="itemType">
-        <img v-if="itemImage" :src="itemImage" alt="物品照片" />
+        <img v-if="itemImage" :src="itemImage" alt="物品照片" class="clickable-image" @click="openPreview(itemImage)" />
+
         <div v-else class="fallback-large">
           <span>{{ itemCategory }}</span>
         </div>
@@ -177,7 +222,10 @@ watch(() => route.params.id, load)
 
       <div class="detail-copy">
         <div class="tag-line">
-          <el-tag class="soft-tag" :class="itemType === 'lost' ? 'type-lost' : 'type-found'">{{ itemType === 'lost' ? '失物信息' : '招领信息' }}</el-tag>
+          <el-tag class="soft-tag" :class="itemType === 'lost' ? 'type-lost' : 'type-found'">
+            {{ itemType === 'lost' ? '失物信息' : '招领信息' }}
+          </el-tag>
+
           <el-tag class="soft-tag">{{ itemCategory }}</el-tag>
           <el-tag class="soft-tag">{{ hasPhoto ? '有照片' : '暂无照片' }}</el-tag>
         </div>
@@ -208,9 +256,38 @@ watch(() => route.params.id, load)
           </div>
         </div>
 
+        <div class="identity-reminder">
+          <b>认领身份核验</b>
+          <span>
+            线下领取需出示学生证、校园卡或其他校园身份凭证；选择邮寄处理时，管理员会先核验注册邮箱、认领联系电话、校园身份信息和物品归属证明。
+          </span>
+        </div>
+
         <div class="detail-actions">
-          <el-button type="primary" size="large" @click="$router.push(`/items/${item.id}/claim`)">{{ itemType === 'found' ? '我要认领' : '我有线索' }}</el-button>
-          <el-button size="large" @click="toggleFav">{{ favorite ? '取消收藏' : '收藏' }}</el-button>
+          <template v-if="userStore.isLogin">
+            <template v-if="item.status === 'completed' || item.status === 'done' || item.status === 'closed'">
+              <el-button type="info" size="large" disabled>该物品已处理完毕</el-button>
+            </template>
+            <template v-else-if="item.status === 'claiming'">
+              <el-button type="warning" size="large" disabled>认领处理中</el-button>
+            </template>
+            <template v-else>
+              <el-button type="primary" size="large" @click="$router.push(`/items/${item.id}/claim`)">
+                {{ actionText }}
+              </el-button>
+            </template>
+
+            <el-button size="large" @click="toggleFav">{{ favorite ? '取消收藏' : '收藏' }}</el-button>
+          </template>
+
+          <template v-else>
+            <el-button type="primary" size="large" @click="$router.push(`/login?redirect=${$route.fullPath}`)">
+              登录后认领
+            </el-button>
+
+            <el-button size="large" disabled>登录后收藏</el-button>
+          </template>
+
           <el-button size="large" @click="$router.push('/guide')">查看用户须知</el-button>
         </div>
       </div>
@@ -219,17 +296,19 @@ watch(() => route.params.id, load)
     <section class="detail-grid">
       <div class="glass-card panel">
         <h2>状态追踪</h2>
+
         <StatusTimeline :item="item" />
       </div>
 
       <div class="glass-card panel">
         <h2>保管与滞留规则</h2>
+
         <RetentionBadge :item="item" />
 
         <ul class="safety">
           <li>招领物品进入保管期，临近到期时管理员优先提醒或集中处理。</li>
           <li>超过保管期仍无人认领，可按校内规则移交服务台、学院办公室或保卫处。</li>
-          <li>贵重物品、证件、银行卡、U盘等应走人工核验和线下交接，不建议公开敏感信息。</li>
+          <li>贵重物品、证件、银行卡、U盘等应走身份核验和线下交接，不建议公开敏感信息。</li>
         </ul>
       </div>
     </section>
@@ -241,8 +320,8 @@ watch(() => route.params.id, load)
     <section class="similar-section" v-if="similar.length">
       <div class="section-title">
         <div>
-          <h2>系统为你找到的相似信息</h2>
-          <p>基于分类、地点、时间和描述关键词进行基础匹配推荐。</p>
+          <h2>相关信息参考</h2>
+          <p>根据分类、地点、时间和描述关键词整理相近信息，仅供用户进一步核对。</p>
         </div>
       </div>
 
@@ -250,6 +329,10 @@ watch(() => route.params.id, load)
         <ItemCard v-for="similarItem in similar" :key="similarItem.id" :item="similarItem" />
       </TransitionGroup>
     </section>
+
+    <el-dialog v-model="previewVisible" title="图片预览" width="80%" destroy-on-close>
+      <img :src="previewImage" style="width: 100%; max-height: 70vh; object-fit: contain;" />
+    </el-dialog>
   </div>
 </template>
 
@@ -284,6 +367,15 @@ watch(() => route.params.id, load)
   height: 100%;
   object-fit: contain;
   background: linear-gradient(135deg, #f8fbff, #eef4ff);
+}
+
+.clickable-image {
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.clickable-image:hover {
+  opacity: 0.9;
 }
 
 .fallback-large {
@@ -344,6 +436,24 @@ watch(() => route.params.id, load)
 
 .info-grid span {
   color: var(--muted);
+}
+
+.identity-reminder {
+  margin-top: 18px;
+  padding: 15px 16px;
+  border-radius: 20px;
+  background: rgba(255, 159, 67, .10);
+  color: #92400e;
+  line-height: 1.7;
+}
+
+.identity-reminder b {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.identity-reminder span {
+  font-size: 13px;
 }
 
 .detail-actions {

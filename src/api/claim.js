@@ -1,46 +1,54 @@
 import request from './request'
 
 /**
- * 第一优先级：提交认领 / 线索 / 领错归还申请
+ * 第一优先级：提交认领申请 / 线索说明
  * 文档接口：POST /api/claims
  *
- * 默认方案：JSON 版
- *
- * 适用情况：
- * - 后端 proof_images 字段按 json 处理
- * - 前端传图片 URL / base64 / 已上传后的图片地址数组
- * - 当前需求文档 claim_requests 表中 proof_images 类型为 json
+ * 用途：
+ * - claim：认领申请
+ * - clue：线索说明
  *
  * 注意：
- * 如果后端要接收真实 File 文件，请改用下面注释的 multipart/form-data 版。
+ * - 第一优先级只处理 claim / clue
+ * - wrong_return 属于第二优先级“领错归还”，不要在第一阶段提交
+ * - proof_images 在 V2.9 文档中为 json 字段，当前使用 JSON 数组提交
  */
 export const createClaimApi = data => {
   const isDelivery = data.pickupMethod === 'delivery'
 
-  return request.post('/api/claims', {
+  const allowedClaimTypes = ['claim', 'clue']
+  const claimType = allowedClaimTypes.includes(data.claimType) ? data.claimType : 'clue'
+
+  const proofImages = Array.isArray(data.proofImages) && data.proofImages.length
+    ? data.proofImages
+    : (data.proofImage ? [data.proofImage] : [])
+
+  const payload = {
     item_id: data.itemId,
-    claim_type: data.claimType,
+    claim_type: claimType,
     proof_text: data.proofText,
-    proof_images: data.proofImage ? [data.proofImage] : [],
+    proof_images: proofImages,
     pickup_method: data.pickupMethod,
     phone: data.phone,
-    delivery_address: isDelivery ? data.deliveryAddress : '',
     remark: data.remark || ''
-  })
+  }
+
+  if (isDelivery) {
+    payload.delivery_address = data.deliveryAddress
+  }
+
+  return request.post('/api/claims', payload)
 }
 
 /**
- * 第一优先级：提交认领申请 multipart/form-data 版
+ * 预留：提交认领申请 multipart/form-data 版
  *
- * 暂时注释原因：
- * - 当前需求文档没有单独写证明图片上传接口
- * - proof_images 字段在表结构里是 json
- * - 后端如果没有配置 multipart 接收，直接启用会失败
+ * 暂时不启用原因：
+ * - V2.9 没有单独的认领证明图片上传接口
+ * - claim_requests.proof_images 是 json 字段
+ * - 当前第一阶段按 JSON 数组提交 proof_images
  *
- * 适用情况：
- * - 后端明确要求 proof_images[] 接收 File 文件
- * - ClaimApply.vue 里 proofImage 保存的是 File 对象，而不是预览地址
- * - 后端接口 POST /api/claims 支持 multipart/form-data
+ * 只有当后端明确要求 proof_images[] 接收 File 文件时，才启用这一版。
  */
 
 // export const createClaimApi = data => {
@@ -55,9 +63,13 @@ export const createClaimApi = data => {
 //   formData.append('delivery_address', isDelivery ? data.deliveryAddress : '')
 //   formData.append('remark', data.remark || '')
 //
-//   if (data.proofImage instanceof File) {
-//     formData.append('proof_images[]', data.proofImage)
-//   }
+//   const proofImages = data.proofImages || (data.proofImage ? [data.proofImage] : [])
+//
+//   proofImages
+//     .filter(image => image instanceof File)
+//     .forEach(image => {
+//       formData.append('proof_images[]', image)
+//     })
 //
 //   return request.post('/api/claims', formData, {
 //     headers: {
@@ -67,13 +79,17 @@ export const createClaimApi = data => {
 // }
 
 /**
- * 第一优先级：获取我的认领申请
+ * 第一优先级：获取我的认领 / 线索申请
  * 文档接口：GET /api/my/claims
  *
  * 用途：
- * - 我的发布 / 我的认领页面
- * - 查看当前用户提交过的认领、线索、领错归还申请
+ * - 我的发布页中的“我的认领/线索”Tab
+ * - 查看当前用户提交过的认领申请和线索说明
  * - 跟踪 pending / approved / rejected / handover_pending / completed 等状态
+ *
+ * 注意：
+ * - 第一版不强制拆出独立 /my-claims 页面
+ * - wrong_return 属于第二优先级，不纳入第一阶段说明
  */
 export const getMyClaimsApi = params => {
   return request.get('/api/my/claims', {
@@ -86,7 +102,7 @@ export const getMyClaimsApi = params => {
  * 文档接口：GET /api/claims/{id}
  *
  * 用途：
- * - 申请人查看自己的认领申请详情
+ * - 申请人查看自己的认领 / 线索申请详情
  * - 发布人 / 管理员查看证明信息和审核状态
  */
 export const getClaimDetailApi = id => {

@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue'
 import LineIcon from '@/components/LineIcon.vue'
+import AppLoading from '@/components/AppLoading.vue'
 import { getAdminAnalyticsApi } from '@/api/admin'
 
 const data = ref({
@@ -11,6 +12,7 @@ const data = ref({
   hotLocations: [],
   claimStages: []
 })
+const pageLoading = ref(false)
 
 const normalizeAnalytics = res => {
   const payload = res?.data || res || {}
@@ -58,15 +60,23 @@ const stageTone = name => {
 }
 
 const load = async () => {
-  const res = await getAdminAnalyticsApi()
+  pageLoading.value = true
 
-  data.value = normalizeAnalytics(res)
+  try {
+    const res = await getAdminAnalyticsApi()
+
+    data.value = normalizeAnalytics(res)
+  } finally {
+    pageLoading.value = false
+  }
 }
 
 onMounted(load)
 </script>
 
 <template>
+  <AppLoading :visible="pageLoading" text="加载分析数据..." />
+
   <div class="analytics-page fade-up">
     <section class="metric-grid">
       <div class="metric-card glass-card">

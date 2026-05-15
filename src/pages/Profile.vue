@@ -1,10 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUserProfileApi, updateUserProfileApi } from '@/api/user'
 import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
+const router = useRouter()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -84,6 +86,7 @@ function updateStoreUser(data) {
     ...userStore.user,
     ...data
   }
+  userStore.setUser(userStore.user)
 }
 
 async function loadProfile() {
@@ -100,6 +103,11 @@ async function loadProfile() {
 }
 
 async function saveProfile() {
+  if (!editForm.value.username || editForm.value.username.length < 2 || editForm.value.username.length > 10) {
+    ElMessage.warning('用户名长度应为 2-10 个字符')
+    return
+  }
+
   saving.value = true
 
   try {
@@ -108,8 +116,26 @@ async function saveProfile() {
     syncEditForm()
     updateStoreUser(profile.value)
     ElMessage.success('个人信息已更新')
+  } catch {
+    ElMessage.error('保存失败，请重试')
   } finally {
     saving.value = false
+  }
+}
+
+async function handleLogout() {
+  try {
+    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+
+    await userStore.logout()
+    ElMessage.success('已退出登录')
+    router.push('/login')
+  } catch {
+    // 用户取消
   }
 }
 
@@ -161,11 +187,11 @@ onMounted(loadProfile)
             <el-input v-model.trim="editForm.phone" placeholder="请输入手机号" />
           </el-form-item>
 
-          <el-form-item label="头像地址">
-            <el-input v-model.trim="editForm.avatar" placeholder="可选，填写头像图片地址" />
-          </el-form-item>
-
           <el-button type="primary" :loading="saving" @click="saveProfile">保存修改</el-button>
+
+          <el-divider />
+
+          <el-button type="danger" plain @click="handleLogout">退出登录</el-button>
         </el-form>
       </div>
     </section>

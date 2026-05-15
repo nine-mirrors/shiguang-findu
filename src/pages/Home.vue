@@ -106,7 +106,7 @@ async function loadCategories() {
 async function loadHomeData() {
   const res = await getItemsApi({
     page: 1,
-    page_size: 6
+    page_size: 100
   })
 
   items.value = normalizeItems(res)
@@ -183,19 +183,17 @@ onMounted(async () => {
         <div class="phone-card">
           <div class="phone-top">
             <span></span>
-            <b>拾光线索提醒</b>
+            <b>平台安全提示</b>
           </div>
 
           <div class="match-item">
-            <strong>黑色无线耳机</strong>
-            <em>匹配度 92%</em>
-            <p>分类一致 · 地点相同 · 关键词相似</p>
+            <strong>保护个人隐私</strong>
+            <p>请勿在描述中公开身份证号、完整学号等敏感信息。</p>
           </div>
 
           <div class="match-item soft">
-            <strong>耳机充电盒</strong>
-            <em>匹配度 81%</em>
-            <p>图书馆三楼 · 时间接近</p>
+            <strong>谨防冒领风险</strong>
+            <p>认领时需提供物品细节证明，管理员会进行核验。</p>
           </div>
         </div>
       </div>

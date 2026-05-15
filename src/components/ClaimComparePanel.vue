@@ -13,8 +13,8 @@ const props = defineProps({
 
 const router = useRouter()
 
-const proofImage = ref('')
-const proofFile = ref(null)
+const proofImages = ref([])
+const proofFiles = ref([])
 const proofText = ref('')
 
 const itemType = computed(() => props.item?.type || 'found')
@@ -43,7 +43,7 @@ const itemText = computed(() => {
 const score = computed(() => {
   let value = 28
 
-  if (proofImage.value) value += 28
+  if (proofImages.value.length) value += 28
   if (proofText.value.length >= 20) value += 24
 
   const hits = proofText.value
@@ -65,8 +65,8 @@ const scoreText = computed(() => {
 })
 
 const reset = () => {
-  proofImage.value = ''
-  proofFile.value = null
+  proofImages.value = []
+  proofFiles.value = []
   proofText.value = ''
 }
 
@@ -102,8 +102,8 @@ const goClaim = () => {
         <span>{{ itemType === 'found' ? '我的证明照片' : '我提供的线索照片' }}</span>
 
         <PhotoUploader
-          v-model="proofImage"
-          v-model:file="proofFile"
+          v-model="proofImages"
+          v-model:file="proofFiles"
           title="上传比对照片"
           desc="例如备用照片、购买记录、同款细节或现场线索"
         />
@@ -119,7 +119,7 @@ const goClaim = () => {
       placeholder="请填写只有真正失主更可能知道的细节：颜色、划痕、贴纸、挂件、文件夹名称、校园卡姓名等。"
     />
 
-    <div v-if="proofText || proofImage" class="score-box">
+    <div v-if="proofText || proofImages.length" class="score-box">
       <div>
         <b>可信度预估</b>
         <p>{{ scoreText }}</p>
@@ -198,20 +198,27 @@ p {
 
 .compare-side :deep(.photo-uploader) {
   height: 260px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.compare-side :deep(.upload-grid) {
+  height: 100%;
 }
 
 .compare-side :deep(.upload-empty),
 .compare-side :deep(.photo-preview) {
-  height: 260px;
-  min-height: 260px;
+  height: 100%;
+  min-height: 0;
 }
 
 .compare-side :deep(.photo-preview img) {
   width: 100%;
-  height: 260px;
-  min-height: 260px;
-  max-height: 260px;
-  object-fit: contain;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  object-fit: cover;
 }
 
 .score-box {
@@ -263,8 +270,12 @@ p {
   .compare-side :deep(.photo-preview),
   .compare-side :deep(.photo-preview img) {
     height: 230px;
-    min-height: 230px;
+    min-height: 0;
     max-height: 230px;
+  }
+
+  .compare-side :deep(.photo-preview img) {
+    object-fit: cover;
   }
 
   .claim-actions {

@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import AppLoading from '@/components/AppLoading.vue'
 import { getCategoriesApi } from '@/api/category'
 import { getItemsApi } from '@/api/item'
 
@@ -154,6 +155,8 @@ watch(() => route.query, syncRoute)
 
 <template>
   <div class="items-page container">
+    <AppLoading :visible="loading" text="加载物品列表..." />
+
     <section class="page-head fade-up">
       <span class="kicker">失物招领大厅</span>
 

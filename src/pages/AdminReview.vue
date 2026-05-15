@@ -2,10 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { formatDateTime } from '@/utils/format'
 import LineIcon from '@/components/LineIcon.vue'
+import AppLoading from '@/components/AppLoading.vue'
 import {
   auditAdminClaimApi,
   auditAdminItemApi,
+  deleteAdminItemApi,
   getAdminClaimsApi,
   getAdminItemsApi
 } from '@/api/admin'
@@ -21,6 +24,7 @@ const router = useRouter()
 
 const active = ref(props.tab || 'items')
 const loading = ref(false)
+const pageLoading = ref(false)
 const keyword = ref('')
 
 const items = ref([])
@@ -33,6 +37,10 @@ const rejectDialog = ref(false)
 const rejectReason = ref('')
 const currentRejectItem = ref(null)
 
+const claimRejectDialog = ref(false)
+const claimRejectReason = ref('')
+const currentRejectClaim = ref(null)
+
 const normalizeList = res => {
   const payload = res?.data || res
   const list = payload?.list || payload?.data || payload?.items || payload || []
@@ -40,19 +48,36 @@ const normalizeList = res => {
   return Array.isArray(list) ? list : []
 }
 
+const getFullImageUrl = url => {
+  if (!url) return ''
+  if (/^https?:\/\//.test(url)) return url
+
+  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+
+  if (url.startsWith('/storage/')) return `${baseURL}${url}`
+  if (url.startsWith('storage/')) return `${baseURL}/${url}`
+
+  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
+}
+
 const getAuditStatus = item => item.auditStatus || item.audit_status || 'pending'
 
 const getImage = item => {
-  if (item.image) return item.image
-  if (item.image_url) return item.image_url
+  let url = ''
 
-  if (Array.isArray(item.images) && item.images.length) {
+  if (item.image) {
+    url = item.image
+  } else if (item.image_url) {
+    url = item.image_url
+  } else if (Array.isArray(item.images) && item.images.length) {
     const firstImage = item.images[0]
 
-    return typeof firstImage === 'string' ? firstImage : firstImage.image_url || firstImage.url || ''
+    url = typeof firstImage === 'string'
+      ? firstImage
+      : firstImage.image_url || firstImage.url || firstImage.path || ''
   }
 
-  return ''
+  return getFullImageUrl(url)
 }
 
 const getCategoryName = item => {
@@ -62,7 +87,7 @@ const getCategoryName = item => {
   return item.category_name || '其他'
 }
 
-const getHappenTime = item => item.happenTime || item.happen_time || item.created_at || '时间待补充'
+const getHappenTime = item => formatDateTime(item.happenTime || item.happen_time || item.created_at || '')
 const getUserId = item => item.userId || item.user_id || item.user?.id || '-'
 const isValuable = item => Boolean(item.isValuable ?? item.is_valuable)
 
@@ -84,9 +109,9 @@ const getClaimItem = claim => claim.item || claim.lost_found_item || claim.lostF
 const getClaimType = claim => claim.claimType || claim.claim_type || 'claim'
 const getClaimMethod = claim => claim.method || claim.pickup_method || 'offline'
 const getClaimProofText = claim => claim.proofText || claim.proof_text || '暂无证明描述'
-const getClaimCreatedAt = claim => claim.createdAt || claim.created_at || '时间待补充'
+const getClaimCreatedAt = claim => formatDateTime(claim.createdAt || claim.created_at || '')
 const getClaimDeliveryAddress = claim => claim.deliveryAddress || claim.delivery_address || ''
-const getClaimScore = claim => Number(claim.score || claim.match_score || 0)
+const getClaimAuditReason = claim => claim.auditReason || claim.audit_reason || claim.reject_reason || ''
 
 const claimTypeText = type => {
   if (type === 'wrong_return') return '领错归还'
@@ -193,6 +218,7 @@ const loadClaims = async () => {
 
 const load = async () => {
   loading.value = true
+  pageLoading.value = true
 
   try {
     await Promise.all([
@@ -201,6 +227,7 @@ const load = async () => {
     ])
   } finally {
     loading.value = false
+    pageLoading.value = false
   }
 }
 
@@ -245,16 +272,69 @@ const markDuplicate = async item => {
   await audit(item, 'rejected', '疑似重复发布，请合并或补充更明确的信息')
 }
 
-const auditClaimRow = async (claim, status) => {
+const removeItem = async item => {
+  try {
+    await ElMessageBox.confirm(`确认删除「${item.name}」？删除后无法恢复。`, '删除确认', {
+      type: 'danger',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消'
+    })
+
+    await deleteAdminItemApi(item.id)
+    ElMessage.success('已删除该发布信息')
+    await loadItems()
+  } catch {
+    // 用户取消
+  }
+}
+
+const auditClaimRow = async (claim, status, auditReason = '') => {
   const isApprove = status === 'approved'
 
   await auditAdminClaimApi(claim.id, {
     status,
-    remark: isApprove ? '核验通过，进入交接流程' : '证明材料不足或信息不一致'
+    auditReason: auditReason || (isApprove
+      ? '证明材料初步通过，进入交接流程。实际领取仍需核验学生证、校园卡或其他校园身份凭证。'
+      : '证明材料不足或信息不一致')
   })
 
-  ElMessage.success(isApprove ? '认领申请已通过' : '认领申请已驳回')
+  ElMessage.success(isApprove ? '认领申请已通过，等待交接核验' : '认领申请已驳回')
   await loadClaims()
+}
+
+const approveClaim = async claim => {
+  await ElMessageBox.confirm(
+    '核验通过仅表示证明材料初步通过。实际交接时仍需核验学生证、校园卡或其他校园身份凭证；邮寄处理前也需核验注册邮箱、认领联系电话、校园身份信息和物品归属证明。',
+    '确认核验通过',
+    {
+      type: 'warning',
+      confirmButtonText: '确认通过',
+      cancelButtonText: '取消'
+    }
+  )
+
+  await auditClaimRow(claim, 'approved')
+}
+
+const openRejectClaim = claim => {
+  currentRejectClaim.value = claim
+  claimRejectReason.value = ''
+  claimRejectDialog.value = true
+}
+
+const confirmRejectClaim = async () => {
+  if (!currentRejectClaim.value) return
+
+  if (!claimRejectReason.value.trim()) {
+    ElMessage.warning('请填写驳回原因')
+    return
+  }
+
+  await auditClaimRow(currentRejectClaim.value, 'rejected', claimRejectReason.value.trim())
+
+  claimRejectDialog.value = false
+  currentRejectClaim.value = null
+  claimRejectReason.value = ''
 }
 
 const goItem = claim => {
@@ -279,6 +359,8 @@ onMounted(load)
 </script>
 
 <template>
+  <AppLoading :visible="pageLoading" text="加载审核列表..." />
+
   <div class="review-page fade-up">
     <el-tabs v-model="active" class="admin-tabs">
       <el-tab-pane label="内容审核" name="items">
@@ -344,6 +426,7 @@ onMounted(load)
               <el-button type="success" :disabled="getAuditStatus(item) === 'approved'" @click="audit(item, 'approved')">通过</el-button>
               <el-button type="danger" plain :disabled="getAuditStatus(item) === 'rejected'" @click="openReject(item)">拒绝</el-button>
               <el-button plain type="warning" @click="markDuplicate(item)">疑似重复</el-button>
+              <el-button plain type="info" @click="removeItem(item)">删除</el-button>
             </div>
           </div>
 
@@ -390,9 +473,9 @@ onMounted(load)
 
         <section class="review-list">
           <div v-for="claim in filteredClaims" :key="claim.id" class="review-row glass-card claim-review">
-            <div class="score-ring" :class="getClaimScore(claim) >= 80 ? 'good' : getClaimScore(claim) >= 60 ? 'mid' : 'bad'">
-              <b>{{ getClaimScore(claim) }}%</b>
-              <span>匹配度</span>
+            <div class="claim-icon">
+              <LineIcon name="user-check" tone="green" />
+              <span>{{ claimTypeText(getClaimType(claim)) }}</span>
             </div>
 
             <div class="review-body">
@@ -405,17 +488,25 @@ onMounted(load)
               <p>{{ getClaimProofText(claim) }}</p>
 
               <div class="meta">
-                {{ getClaimMethod(claim) === 'delivery' ? '邮寄领取' : '线下领取' }} · {{ claim.phone }} · {{ getClaimCreatedAt(claim) }}
+                {{ getClaimMethod(claim) === 'delivery' ? '邮寄领取' : '线下领取' }} · {{ claim.phone || '未填写联系电话' }} · {{ getClaimCreatedAt(claim) }}
+              </div>
+
+              <div class="identity-line">
+                通过审核只代表证明材料初步通过；线下交接仍需核验学生证、校园卡或其他校园身份凭证，邮寄前需核验注册邮箱、认领联系电话、校园身份信息和物品归属证明。
               </div>
 
               <div v-if="getClaimDeliveryAddress(claim)" class="privacy-line">
-                收件地址：已加密保存，仅核验通过后用于邮寄交接。
+                收件地址：仅核验通过后用于邮寄交接，不在公开页面展示。
+              </div>
+
+              <div v-if="getClaimAuditReason(claim)" class="reason-line">
+                审核说明：{{ getClaimAuditReason(claim) }}
               </div>
             </div>
 
             <div class="actions">
-              <el-button type="success" :disabled="['approved', 'handover_pending', 'completed'].includes(claim.status)" @click="auditClaimRow(claim, 'approved')">核验通过</el-button>
-              <el-button type="danger" plain :disabled="claim.status === 'rejected' || claim.status === 'completed'" @click="auditClaimRow(claim, 'rejected')">驳回</el-button>
+              <el-button type="success" :disabled="['approved', 'handover_pending', 'completed'].includes(claim.status)" @click="approveClaim(claim)">核验通过</el-button>
+              <el-button type="danger" plain :disabled="claim.status === 'rejected' || claim.status === 'completed'" @click="openRejectClaim(claim)">驳回</el-button>
               <el-button plain @click="goItem(claim)">查看关联信息</el-button>
             </div>
           </div>
@@ -433,6 +524,20 @@ onMounted(load)
       <template #footer>
         <el-button @click="rejectDialog = false">取消</el-button>
         <el-button type="danger" @click="confirmReject">确认拒绝</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="claimRejectDialog" title="填写认领驳回原因" width="480px">
+      <el-input
+        v-model="claimRejectReason"
+        type="textarea"
+        :rows="4"
+        placeholder="例如：证明材料不足、物品细节不一致、身份信息无法核验、联系方式无法确认等"
+      />
+
+      <template #footer>
+        <el-button @click="claimRejectDialog = false">取消</el-button>
+        <el-button type="danger" @click="confirmRejectClaim">确认驳回</el-button>
       </template>
     </el-dialog>
   </div>
@@ -520,6 +625,21 @@ onMounted(load)
   background: #f8fafc;
 }
 
+.claim-icon {
+  width: 106px;
+  height: 94px;
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 20px;
+  background: rgba(0, 184, 148, .08);
+  color: #047857;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .title {
   display: flex;
   align-items: center;
@@ -542,11 +662,29 @@ onMounted(load)
   color: #8b95a7;
 }
 
-.privacy-line {
+.privacy-line,
+.identity-line,
+.reason-line {
   margin-top: 8px;
   padding: 8px 12px;
   border-radius: 14px;
+  line-height: 1.65;
+}
+
+.privacy-line {
   background: rgba(79, 124, 255, .06);
+}
+
+.identity-line {
+  background: rgba(255, 159, 67, .10);
+  color: #92400e;
+  font-size: 13px;
+}
+
+.reason-line {
+  background: rgba(244, 63, 94, .08);
+  color: #be123c;
+  font-size: 13px;
 }
 
 .actions {
@@ -555,38 +693,6 @@ onMounted(load)
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-}
-
-.score-ring {
-  width: 90px;
-  height: 90px;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  border-radius: 999px;
-  background: conic-gradient(var(--primary) 0 80%, #eef2f7 0);
-}
-
-.score-ring b {
-  display: block;
-}
-
-.score-ring span {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.score-ring.good {
-  background: conic-gradient(var(--success) 0 86%, #eef2f7 0);
-}
-
-.score-ring.mid {
-  background: conic-gradient(var(--warning) 0 66%, #eef2f7 0);
-}
-
-.score-ring.bad {
-  background: conic-gradient(var(--danger) 0 45%, #eef2f7 0);
 }
 
 .empty-review {

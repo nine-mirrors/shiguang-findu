@@ -14,25 +14,49 @@ export const loginApi = data => {
 /**
  * 第一优先级：用户注册
  * 文档接口：POST /api/auth/register
+ *
+ * V2.9 字段约定：
+ * - 前端 username -> 接口字段 name
+ * - 前端 emailCode -> 接口字段 code
  */
 export const registerApi = data => {
   return request.post('/api/auth/register', {
-    username: data.username,
+    name: data.username,
     email: data.email,
     password: data.password,
     password_confirmation: data.password_confirmation,
-    email_code: data.emailCode
+    code: data.emailCode
   })
 }
 
 /**
  * 第一优先级：发送邮箱验证码
  * 文档接口：POST /api/auth/send-email-code
+ *
+ * type：
+ * - register
+ * - forgot_password
  */
 export const sendEmailCodeApi = (email, type = 'register') => {
   return request.post('/api/auth/send-email-code', {
     email,
     type
+  })
+}
+
+/**
+ * 第一优先级：忘记密码 / 重置密码
+ * 文档接口：POST /api/auth/forgot-password
+ *
+ * V2.9 字段约定：
+ * - 前端 emailCode -> 接口字段 code
+ */
+export const forgotPasswordApi = data => {
+  return request.post('/api/auth/forgot-password', {
+    email: data.email,
+    code: data.emailCode,
+    password: data.password,
+    password_confirmation: data.password_confirmation
   })
 }
 
@@ -43,3 +67,4 @@ export const sendEmailCodeApi = (email, type = 'register') => {
 export const logoutApi = () => {
   return request.post('/api/auth/logout')
 }
+

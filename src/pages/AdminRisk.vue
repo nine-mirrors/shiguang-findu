@@ -1,8 +1,10 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { formatDateTime } from '@/utils/format'
 import LineIcon from '@/components/LineIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import AppLoading from '@/components/AppLoading.vue'
 import { addAdminBlacklistApi, getAdminBlacklistsApi } from '@/api/admin'
 
 const props = defineProps({
@@ -15,6 +17,7 @@ const props = defineProps({
 const active = ref(props.tab)
 const blacklists = ref([])
 const loading = ref(false)
+const pageLoading = ref(false)
 const submitLoading = ref(false)
 
 const form = reactive({
@@ -37,7 +40,7 @@ const getUserId = item => item.user_id || item.userId || getUser(item)?.id || '-
 const getReason = item => item.reason || '未填写原因'
 const getStatus = item => item.status || 'active'
 const getLimitType = item => item.limit_type || item.limitType || 'all'
-const getCreatedAt = item => item.created_at || item.createdAt || '时间待补充'
+const getCreatedAt = item => formatDateTime(item.created_at || item.createdAt || '')
 
 const limitText = type => {
   switch (type) {
@@ -72,12 +75,16 @@ const statusType = status => {
 
 const load = async () => {
   loading.value = true
+  pageLoading.value = true
 
   try {
     const res = await getAdminBlacklistsApi()
     blacklists.value = normalizeList(res)
+  } catch {
+    ElMessage.error('加载黑名单数据失败')
   } finally {
     loading.value = false
+    pageLoading.value = false
   }
 }
 
@@ -103,6 +110,8 @@ const submitBlacklist = async () => {
     ElMessage.success('已加入黑名单')
     resetForm()
     await load()
+  } catch {
+    ElMessage.error('操作失败，请重试')
   } finally {
     submitLoading.value = false
   }
@@ -112,6 +121,8 @@ onMounted(load)
 </script>
 
 <template>
+  <AppLoading :visible="pageLoading" text="加载风险数据..." />
+
   <div class="risk-page fade-up">
     <el-tabs v-model="active" class="admin-tabs">
       <el-tab-pane label="实名认证审核" name="verify">

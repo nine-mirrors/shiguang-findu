@@ -20,7 +20,8 @@ const form = reactive({
   email: '',
   emailCode: '',
   password: '',
-  password_confirmation: ''
+  password_confirmation: '',
+  agreement: false
 })
 
 const rules = {
@@ -52,6 +53,19 @@ const rules = {
       },
       trigger: 'blur'
     }
+  ],
+  agreement: [
+    {
+      validator: (_, value, callback) => {
+        if (value) {
+          callback()
+          return
+        }
+
+        callback(new Error('请先阅读并同意平台规则与用户须知'))
+      },
+      trigger: 'change'
+    }
   ]
 }
 
@@ -76,7 +90,7 @@ const startCountdown = () => {
 }
 
 const sendCode = async () => {
-  if (countdown.value > 0) return
+  if (countdown.value > 0 || codeLoading.value) return
 
   await formRef.value.validateField('email')
 
@@ -86,12 +100,16 @@ const sendCode = async () => {
     await sendEmailCodeApi(form.email, 'register')
     ElMessage.success('验证码已发送，请查看邮箱')
     startCountdown()
+  } catch {
+    ElMessage.error('发送验证码失败，请重试')
   } finally {
     codeLoading.value = false
   }
 }
 
 const submit = async () => {
+  if (loading.value) return
+
   await formRef.value.validate()
   loading.value = true
 
@@ -99,6 +117,8 @@ const submit = async () => {
     await userStore.register(form)
     ElMessage.success('注册成功')
     router.push('/home')
+  } catch {
+    // 错误已在 request 拦截器中处理
   } finally {
     loading.value = false
   }
@@ -109,18 +129,45 @@ onBeforeUnmount(clearTimer)
 
 <template>
   <div class="auth-page">
+    <div class="auth-bg-orb orb-a"></div>
+    <div class="auth-bg-orb orb-b"></div>
+
     <section class="register-card fade-up">
       <div class="copy">
         <span class="kicker">安全注册</span>
 
         <h1>创建你的校园协寻账号</h1>
 
-        <p>注册后可发布失物招领信息、提交认领申请、收藏可疑物品，并接收审核结果和状态通知。</p>
+        <p>
+          注册后可以发布失物与招领信息、提交认领申请、收藏关注物品，并通过通知中心跟踪审核结果和认领进度。
+        </p>
+
+        <div class="safe-list">
+          <div>
+            <b>发布需审核</b>
+            <span>失物与招领信息提交后进入管理员审核，通过后再公开展示。</span>
+          </div>
+
+          <div>
+            <b>信息需真实</b>
+            <span>请勿发布虚假、重复、无关或侵犯他人隐私的信息。</span>
+          </div>
+
+          <div>
+            <b>认领需核验</b>
+            <span>认领时需要提交合理证明，平台会根据规则进行人工核验。</span>
+          </div>
+        </div>
       </div>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="form-box">
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="form-box" @keyup.enter="submit">
+        <div class="form-title">
+          <b>注册账号</b>
+          <span>请填写基本信息完成账号创建</span>
+        </div>
+
         <el-form-item label="用户名" prop="username">
-          <el-input v-model.trim="form.username" size="large" placeholder="例如：李同学" />
+          <el-input v-model.trim="form.username" size="large" maxlength="10" show-word-limit placeholder="例如：李同学" />
         </el-form-item>
 
         <el-form-item label="邮箱" prop="email">
@@ -130,7 +177,10 @@ onBeforeUnmount(clearTimer)
         <el-form-item label="邮箱验证码" prop="emailCode">
           <div class="code-line">
             <el-input v-model.trim="form.emailCode" size="large" placeholder="请输入邮箱验证码" />
-            <el-button size="large" :loading="codeLoading" @click="sendCode">发送验证码</el-button>
+
+            <el-button size="large" :loading="codeLoading" :disabled="countdown > 0" @click="sendCode">
+              {{ countdown > 0 ? `${countdown}s` : '发送验证码' }}
+            </el-button>
           </div>
         </el-form-item>
 
@@ -142,7 +192,18 @@ onBeforeUnmount(clearTimer)
           <el-input v-model="form.password_confirmation" type="password" show-password size="large" placeholder="请再次输入密码" />
         </el-form-item>
 
-        <el-button type="primary" size="large" class="full-btn" :loading="loading" @click="submit">注册并进入平台</el-button>
+        <el-form-item prop="agreement" class="agreement-item">
+          <el-checkbox v-model="form.agreement">
+            我已阅读并同意
+            <router-link class="agreement-link" to="/guide" target="_blank" @click.stop>
+              《平台规则与用户须知》
+            </router-link>
+          </el-checkbox>
+        </el-form-item>
+
+        <el-button type="primary" size="large" class="full-btn" :loading="loading" @click="submit">
+          注册并进入平台
+        </el-button>
 
         <p class="switch">
           已有账号？
@@ -156,58 +217,162 @@ onBeforeUnmount(clearTimer)
 <style scoped>
 .auth-page {
   min-height: 100vh;
+  padding: 32px;
+  position: relative;
+  overflow: hidden;
   display: grid;
   place-items: center;
-  padding: 32px;
-  background: radial-gradient(circle at 20% 10%, rgba(79, 124, 255, .18), transparent 28rem), linear-gradient(135deg, #f8fbff, #eff4ff);
+  background:
+    radial-gradient(circle at 18% 18%, rgba(79, 124, 255, .20), transparent 31%),
+    radial-gradient(circle at 82% 78%, rgba(0, 184, 148, .16), transparent 32%),
+    linear-gradient(135deg, #f8fbff 0%, #eef4ff 100%);
+}
+
+.auth-bg-orb {
+  position: absolute;
+  border-radius: 999px;
+  opacity: .55;
+  pointer-events: none;
+}
+
+.orb-a {
+  width: 420px;
+  height: 420px;
+  left: -130px;
+  top: -120px;
+  background: rgba(79, 124, 255, .18);
+}
+
+.orb-b {
+  width: 360px;
+  height: 360px;
+  right: -100px;
+  bottom: -120px;
+  background: rgba(0, 184, 148, .16);
 }
 
 .register-card {
-  width: min(980px, 100%);
+  position: relative;
+  z-index: 1;
+  width: min(1040px, 100%);
   display: grid;
-  grid-template-columns: .9fr 1.1fr;
-  gap: 24px;
-  padding: 30px;
-  border-radius: 36px;
-  background: rgba(255, 255, 255, .82);
+  grid-template-columns: .95fr 1.05fr;
+  gap: 28px;
+  padding: 34px;
+  border: 1px solid rgba(255, 255, 255, .72);
+  border-radius: 38px;
+  background: rgba(255, 255, 255, .84);
   box-shadow: 0 40px 100px rgba(31, 45, 92, .16);
+  backdrop-filter: blur(18px);
 }
 
 .copy {
-  padding: 36px;
-  border-radius: 28px;
-  background: linear-gradient(135deg, rgba(79, 124, 255, .15), rgba(0, 184, 148, .10));
+  padding: 34px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(79, 124, 255, .16), transparent 36%),
+    linear-gradient(135deg, rgba(79, 124, 255, .12), rgba(0, 184, 148, .08)),
+    rgba(248, 251, 255, .82);
 }
 
 .copy h1 {
-  margin: 24px 0 16px;
-  font-size: 42px;
-  line-height: 1.12;
-  letter-spacing: -.05em;
+  margin: 22px 0 16px;
+  color: var(--ink);
+  font-size: clamp(36px, 5vw, 58px);
+  line-height: 1.06;
+  letter-spacing: -.06em;
 }
 
 .copy p {
+  margin: 0;
   color: var(--muted);
-  line-height: 1.9;
+  line-height: 1.85;
+}
+
+.safe-list {
+  margin-top: 28px;
+  display: grid;
+  gap: 12px;
+}
+
+.safe-list div {
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(79, 124, 255, .08);
+}
+
+.safe-list b {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--primary-strong);
+}
+
+.safe-list span {
+  color: var(--muted);
+  line-height: 1.65;
+  font-size: 13px;
 }
 
 .form-box {
-  padding: 18px;
+  padding: 28px;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, .90);
+  box-shadow: 0 20px 50px rgba(31, 45, 92, .10);
+}
+
+.form-title {
+  margin-bottom: 20px;
+}
+
+.form-title b {
+  display: block;
+  color: var(--ink);
+  font-size: 24px;
+}
+
+.form-title span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .code-line {
   width: 100%;
   display: grid;
-  grid-template-columns: 1fr 126px;
+  grid-template-columns: 1fr 132px;
   gap: 10px;
+}
+
+.agreement-item {
+  margin-top: -4px;
+}
+
+.agreement-link {
+  color: var(--primary-strong);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.agreement-link:hover {
+  text-decoration: underline;
 }
 
 .full-btn {
   width: 100%;
-  height: 48px;
+  height: 46px;
+  margin-top: 4px;
+  border-radius: 999px;
+  font-weight: 900;
+  box-shadow: 0 14px 30px rgba(79, 124, 255, .22);
 }
 
 .switch {
+  margin: 20px 0 0;
   text-align: center;
   color: var(--muted);
 }
@@ -215,19 +380,41 @@ onBeforeUnmount(clearTimer)
 .switch a {
   color: var(--primary-strong);
   font-weight: 900;
+  text-decoration: none;
 }
 
-@media (max-width: 820px) {
+.switch a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 860px) {
+  .auth-page {
+    padding: 24px 16px;
+  }
+
   .register-card {
     grid-template-columns: 1fr;
+    padding: 24px;
+    border-radius: 30px;
   }
 
-  .copy {
-    padding: 28px;
+  .copy,
+  .form-box {
+    padding: 24px;
   }
 
+  .code-line {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
   .copy h1 {
-    font-size: 32px;
+    font-size: 36px;
+  }
+
+  .form-title b {
+    font-size: 22px;
   }
 }
 </style>

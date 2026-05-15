@@ -1,17 +1,34 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getCategoriesApi } from '@/api/category'
-import { createItemApi, uploadItemImagesApi } from '@/api/item'
+import { createItemApi, getItemDetailApi, updateItemApi, uploadItemImagesApi } from '@/api/item'
 import PhotoUploader from '@/components/PhotoUploader.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
+import AppLoading from '@/components/AppLoading.vue'
+import { storage } from '@/utils/storage'
+
+const props = defineProps({
+  editId: {
+    type: String,
+    default: ''
+  }
+})
 
 const router = useRouter()
+const route = useRoute()
+
+const isEditMode = computed(() => Boolean(props.editId || route.params.id))
+const editItemId = computed(() => props.editId || route.params.id)
 
 const formRef = ref()
 const loading = ref(false)
+const pageLoading = ref(false)
 const categoryList = ref([])
+const draftSavedAt = ref('')
+
+const DRAFT_KEY = 'publish_draft'
 
 const form = reactive({
   type: 'lost',
@@ -22,8 +39,8 @@ const form = reactive({
   happenTime: '',
   description: '',
   contact: '',
-  image: '',
-  imageFile: null,
+  images: [],
+  imageFiles: [],
   claimHint: '',
   retentionDays: 30,
   visibility: 'public',
@@ -100,7 +117,7 @@ const isFutureTime = value => {
 
 const activeStep = computed(() => {
   if (!form.type) return 0
-  if (!form.image) return 1
+  if (!form.images.length) return 1
   if (form.name && form.categoryId && form.location && form.happenTime) return 3
 
   return 2
@@ -117,7 +134,7 @@ const previewItem = computed(() => {
     description: form.description || '这里会实时展示你填写的物品特征描述。',
     status: 'open',
     auditStatus: 'pending',
-    image: form.image,
+    image: form.images[0] || '',
     storageCode: form.type === 'found' ? '待审核入库' : '待匹配',
     retentionDays: form.retentionDays,
     visibility: form.visibility,
@@ -131,7 +148,7 @@ const assistText = computed(() => {
     return '分类接口暂未加载成功。请等待分类加载后再提交，避免分类编号异常。'
   }
 
-  if (!form.image) {
+  if (!form.images.length) {
     return '建议上传清晰照片。真实平台中照片能显著降低误认成本，也方便后续做图片比对。'
   }
 
@@ -180,7 +197,7 @@ const handleCategoryChange = value => {
   form.categoryName = currentCategory?.name || ''
 }
 
-const reset = () => {
+const reset = (clearDraft = true) => {
   Object.assign(form, {
     type: 'lost',
     name: '',
@@ -190,17 +207,87 @@ const reset = () => {
     happenTime: '',
     description: '',
     contact: '',
-    image: '',
-    imageFile: null,
+    images: [],
+    imageFiles: [],
     claimHint: '',
     retentionDays: 30,
     visibility: 'public',
     isValuable: false
   })
+  draftSavedAt.value = ''
+  if (clearDraft) {
+    storage.remove(DRAFT_KEY)
+  }
 }
 
+const saveDraft = () => {
+  if (isEditMode.value) return
+
+  const draft = {
+    type: form.type,
+    name: form.name,
+    categoryId: form.categoryId,
+    categoryName: form.categoryName,
+    location: form.location,
+    happenTime: form.happenTime,
+    description: form.description,
+    contact: form.contact,
+    images: form.images,
+    claimHint: form.claimHint,
+    retentionDays: form.retentionDays,
+    visibility: form.visibility,
+    isValuable: form.isValuable,
+    savedAt: Date.now()
+  }
+  storage.set(DRAFT_KEY, draft)
+  draftSavedAt.value = new Date().toLocaleTimeString()
+}
+
+const loadDraft = () => {
+  if (isEditMode.value) return false
+
+  const draft = storage.get(DRAFT_KEY, null)
+  if (!draft) return false
+
+  const ageHours = (Date.now() - (draft.savedAt || 0)) / (1000 * 60 * 60)
+  if (ageHours > 168) {
+    storage.remove(DRAFT_KEY)
+    return false
+  }
+
+  Object.assign(form, {
+    type: draft.type || 'lost',
+    name: draft.name || '',
+    categoryId: draft.categoryId || '',
+    categoryName: draft.categoryName || '',
+    location: draft.location || '',
+    happenTime: draft.happenTime || '',
+    description: draft.description || '',
+    contact: draft.contact || '',
+    images: draft.images || [],
+    imageFiles: [],
+    claimHint: draft.claimHint || '',
+    retentionDays: draft.retentionDays || 30,
+    visibility: draft.visibility || 'public',
+    isValuable: draft.isValuable || false
+  })
+  draftSavedAt.value = new Date(draft.savedAt).toLocaleString()
+  return true
+}
+
+const hasDraft = computed(() => {
+  const draft = storage.get(DRAFT_KEY, null)
+  if (!draft) return false
+  const ageHours = (Date.now() - (draft.savedAt || 0)) / (1000 * 60 * 60)
+  return ageHours <= 168
+})
+
 const getImageList = () => {
-  return form.imageFile ? [form.imageFile] : []
+  if (!Array.isArray(form.imageFiles)) {
+    return []
+  }
+
+  return form.imageFiles.filter(file => file instanceof File)
 }
 
 const loadCategories = async () => {
@@ -228,6 +315,22 @@ const submit = async () => {
   loading.value = true
 
   try {
+    if (isEditMode.value) {
+      await updateItemApi(editItemId.value, form)
+
+      if (getImageList().length) {
+        try {
+          await uploadItemImagesApi(editItemId.value, getImageList())
+        } catch {
+          ElMessage.warning('信息已更新，但图片上传失败')
+        }
+      }
+
+      ElMessage.success('更新成功')
+      router.push('/my-posts')
+      return
+    }
+
     const res = await createItemApi(form)
     const createdItem = normalizeCreatedItem(res)
 
@@ -242,21 +345,98 @@ const submit = async () => {
     }
 
     ElMessage.success('提交成功，已进入待审核状态')
+    reset(true)
     router.push('/my-posts')
   } finally {
     loading.value = false
   }
 }
 
-onMounted(loadCategories)
+const loadEditData = async () => {
+  if (!isEditMode.value) return
+
+  pageLoading.value = true
+
+  try {
+    const res = await getItemDetailApi(editItemId.value)
+    const item = res?.data?.item || res?.data || res
+
+    if (!item) {
+      ElMessage.error('未找到该物品信息')
+      router.push('/my-posts')
+      return
+    }
+
+    Object.assign(form, {
+      type: item.type || 'lost',
+      name: item.name || '',
+      categoryId: item.category_id || item.categoryId || '',
+      categoryName: item.category_name || item.categoryName || (typeof item.category === 'string' ? item.category : item.category?.name) || '',
+      location: item.location || '',
+      happenTime: item.happen_time || item.happenTime || '',
+      description: item.description || '',
+      contact: item.contact || '',
+      images: item.images || (item.image_url ? [item.image_url] : []),
+      imageFiles: [],
+      claimHint: item.claim_hint || item.claimHint || '',
+      retentionDays: item.retention_days || item.retentionDays || 30,
+      visibility: item.visibility || 'public',
+      isValuable: item.is_valuable || item.isValuable || false
+    })
+  } catch {
+    ElMessage.error('加载物品信息失败')
+    router.push('/my-posts')
+  } finally {
+    pageLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  await loadCategories()
+  await loadEditData()
+
+  if (!isEditMode.value) {
+    const restored = loadDraft()
+    if (restored) {
+      ElMessage.success('已恢复上次未提交的填写内容')
+    }
+    pageLoading.value = false
+  }
+})
+
+watch(
+  () => ({
+    type: form.type,
+    name: form.name,
+    categoryId: form.categoryId,
+    categoryName: form.categoryName,
+    location: form.location,
+    happenTime: form.happenTime,
+    description: form.description,
+    contact: form.contact,
+    images: form.images,
+    claimHint: form.claimHint,
+    retentionDays: form.retentionDays,
+    visibility: form.visibility,
+    isValuable: form.isValuable
+  }),
+  () => {
+    if (!isEditMode.value) {
+      saveDraft()
+    }
+  },
+  { deep: true }
+)
 </script>
 
 <template>
+  <AppLoading :visible="pageLoading" :text="isEditMode ? '加载物品信息...' : '加载中...'" />
+
   <div class="publish-page container">
     <section class="page-head fade-up">
-      <span class="kicker">分步骤发布 · 照片比对</span>
+      <span class="kicker">{{ isEditMode ? '编辑信息 · 修改发布' : '分步骤发布 · 照片比对' }}</span>
 
-      <h1>发布时就把“能不能认出来”考虑清楚。</h1>
+      <h1>{{ isEditMode ? '修改已发布的信息' : '发布时就把“能不能认出来”考虑清楚。' }}</h1>
 
       <p>在原需求表单字段基础上增强照片上传、实时预览、认领核验提示和保管策略，减少后续沟通成本。</p>
     </section>
@@ -296,7 +476,7 @@ onMounted(loadCategories)
           </el-form-item>
 
           <el-form-item label="物品照片（强烈建议上传）">
-            <PhotoUploader v-model="form.image" v-model:file="form.imageFile" />
+            <PhotoUploader v-model="form.images" v-model:file="form.imageFiles" />
           </el-form-item>
 
           <el-form-item label="物品名称" prop="name">
@@ -378,8 +558,14 @@ onMounted(loadCategories)
           </div>
 
           <div class="submit-line">
-            <el-button @click="reset">重置</el-button>
-            <el-button type="primary" :loading="loading" @click="submit">提交审核</el-button>
+            <el-button @click="reset">{{ isEditMode ? '恢复原始' : '重置' }}</el-button>
+            <el-button type="primary" :loading="loading" @click="submit">
+              {{ isEditMode ? '保存修改' : '提交审核' }}
+            </el-button>
+          </div>
+
+          <div v-if="!isEditMode && draftSavedAt" class="draft-hint">
+            草稿已自动保存于 {{ draftSavedAt }}
           </div>
         </el-form>
       </div>
@@ -391,8 +577,8 @@ onMounted(loadCategories)
         </div>
 
         <div class="live-card">
-          <div class="live-cover" :class="{ empty: !form.image }">
-            <img v-if="form.image" :src="form.image" alt="物品预览图" />
+          <div class="live-cover" :class="{ empty: !form.images.length }">
+            <img v-if="form.images[0]" :src="form.images[0]" alt="物品预览图" />
 
             <div v-else class="cover-empty">
               <span>上传照片后展示预览</span>
@@ -418,7 +604,7 @@ onMounted(loadCategories)
 
             <div class="live-footer">
               <span>{{ previewItem.auditStatus === 'pending' ? '待审核' : '已展示' }}</span>
-              <span>{{ form.image ? '有照片可比对' : '暂无照片' }}</span>
+              <span>{{ form.images.length ? '有照片可比对' : '暂无照片' }}</span>
             </div>
           </div>
         </div>
@@ -533,6 +719,13 @@ onMounted(loadCategories)
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.draft-hint {
+  margin-top: 10px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .preview-panel {

@@ -20,23 +20,23 @@ const currentLevelText = computed(() => {
   const level = current.value.level || current.value.verification_level || 'none'
   const status = current.value.status || 'none'
 
+  const levelMap = {
+    full: '完整认证',
+    basic: '基础认证',
+    none: '未认证'
+  }
+
+  const levelLabel = levelMap[level] || '未认证'
+
   if (status === 'pending') {
-    return '审核中'
+    return `${levelLabel} · 审核中`
   }
 
   if (status === 'rejected') {
-    return '已驳回'
+    return `${levelLabel} · 已驳回`
   }
 
-  if (level === 'full') {
-    return '完整认证'
-  }
-
-  if (level === 'basic') {
-    return '基础认证'
-  }
-
-  return '未认证'
+  return levelLabel
 })
 
 const currentStatusText = computed(() => {
@@ -151,7 +151,7 @@ onMounted(loadVerification)
 
         <p>适用于普通物品认领、发布信息、收藏和站内通知。平台只展示必要状态，不公开真实身份信息。</p>
 
-        <el-tag :type="statusType">当前：{{ currentLevelText }} · {{ currentStatusText }}</el-tag>
+        <el-tag :type="statusType">当前：{{ currentLevelText }}</el-tag>
       </div>
 
       <div class="level-card glass-card strong">
@@ -175,15 +175,15 @@ onMounted(loadVerification)
         </el-form-item>
 
         <el-form-item label="真实姓名" prop="realName">
-          <el-input v-model.trim="form.realName" placeholder="仅管理员可见" />
+          <el-input v-model.trim="form.realName" placeholder="请填写真实姓名" />
         </el-form-item>
 
         <el-form-item label="学号 / 工号" prop="studentNo">
-          <el-input v-model.trim="form.studentNo" placeholder="前端展示时会脱敏" />
+          <el-input v-model.trim="form.studentNo" placeholder="请填写学号或工号" />
         </el-form-item>
 
         <el-form-item label="手机号" prop="phone">
-          <el-input v-model.trim="form.phone" placeholder="用于管理员审核和交接联系" />
+          <el-input v-model.trim="form.phone" placeholder="请填写手机号" />
         </el-form-item>
 
         <el-form-item v-if="form.level === 'full'" label="证件后四位" prop="idCardLast4">

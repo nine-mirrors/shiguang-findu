@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
+import { useUserStore } from '@/stores/user'
 
 const userOnly = {
   requiresAuth: true,
@@ -33,6 +33,17 @@ const router = createRouter({
       meta: { guest: true }
     },
     {
+      path: '/forgot-password',
+      name: 'ForgotPassword',
+      component: () => import('@/pages/ForgotPassword.vue'),
+      meta: { guest: true }
+    },
+    {
+      path: '/403',
+      name: 'Forbidden',
+      component: () => import('@/pages/Forbidden.vue')
+    },
+    {
       path: '/',
       component: () => import('@/layouts/UserLayout.vue'),
       meta: { userArea: true },
@@ -63,6 +74,13 @@ const router = createRouter({
           name: 'Publish',
           component: () => import('@/pages/Publish.vue'),
           meta: userOnly
+        },
+        {
+          path: 'publish/:id/edit',
+          name: 'EditPublish',
+          component: () => import('@/pages/Publish.vue'),
+          meta: userOnly,
+          props: route => ({ editId: route.params.id })
         },
         {
           path: 'my-posts',
@@ -111,73 +129,73 @@ const router = createRouter({
       component: () => import('@/layouts/AdminLayout.vue'),
       meta: adminOnly,
       children: [
-  {
-    path: '',
-    redirect: '/admin/dashboard'
-  },
-  {
-    path: 'dashboard',
-    name: 'AdminDashboard',
-    component: () => import('@/pages/AdminDashboard.vue')
-  },
-  {
-    path: 'items',
-    name: 'AdminItems',
-    component: () => import('@/pages/AdminReview.vue'),
-    props: route => ({ tab: route.query.tab || 'items' })
-  },
-  {
-    path: 'claims',
-    name: 'AdminClaims',
-    component: () => import('@/pages/AdminReview.vue'),
-    props: route => ({ tab: route.query.tab || 'claims' })
-  },
-  {
-    path: 'review',
-    redirect: '/admin/items'
-  },
-  {
-    path: 'operations',
-    name: 'AdminOperations',
-    component: () => import('@/pages/AdminOperations.vue'),
-    props: route => ({ tab: route.query.tab || 'handover' })
-  },
-  {
-    path: 'overdue-items',
-    name: 'AdminOverdueItems',
-    component: () => import('@/pages/AdminOperations.vue'),
-    props: route => ({ tab: route.query.tab || 'storage' })
-  },
-  {
-    path: 'announcements',
-    name: 'AdminAnnouncements',
-    component: () => import('@/pages/AdminOperations.vue'),
-    props: route => ({ tab: route.query.tab || 'announcements' })
-  },
-  {
-    path: 'disputes',
-    name: 'AdminDisputes',
-    component: () => import('@/pages/AdminOperations.vue'),
-    props: route => ({ tab: route.query.tab || 'disputes' })
-  },
-  {
-    path: 'risk',
-    name: 'AdminRisk',
-    component: () => import('@/pages/AdminRisk.vue'),
-    props: route => ({ tab: route.query.tab || 'blacklist' })
-  },
-  {
-    path: 'blacklist',
-    name: 'AdminBlacklist',
-    component: () => import('@/pages/AdminRisk.vue'),
-    props: route => ({ tab: route.query.tab || 'blacklist' })
-  },
-  {
-    path: 'analytics',
-    name: 'AdminAnalytics',
-    component: () => import('@/pages/AdminAnalytics.vue')
-  }
-]
+        {
+          path: '',
+          redirect: '/admin/dashboard'
+        },
+        {
+          path: 'dashboard',
+          name: 'AdminDashboard',
+          component: () => import('@/pages/AdminDashboard.vue')
+        },
+        {
+          path: 'items',
+          name: 'AdminItems',
+          component: () => import('@/pages/AdminReview.vue'),
+          props: route => ({ tab: route.query.tab || 'items' })
+        },
+        {
+          path: 'claims',
+          name: 'AdminClaims',
+          component: () => import('@/pages/AdminReview.vue'),
+          props: route => ({ tab: route.query.tab || 'claims' })
+        },
+        {
+          path: 'review',
+          redirect: '/admin/items'
+        },
+        {
+          path: 'operations',
+          name: 'AdminOperations',
+          component: () => import('@/pages/AdminOperations.vue'),
+          props: route => ({ tab: route.query.tab || 'handover' })
+        },
+        {
+          path: 'overdue-items',
+          name: 'AdminOverdueItems',
+          component: () => import('@/pages/AdminOperations.vue'),
+          props: route => ({ tab: route.query.tab || 'storage' })
+        },
+        {
+          path: 'announcements',
+          name: 'AdminAnnouncements',
+          component: () => import('@/pages/AdminOperations.vue'),
+          props: route => ({ tab: route.query.tab || 'announcements' })
+        },
+        {
+          path: 'disputes',
+          name: 'AdminDisputes',
+          component: () => import('@/pages/AdminOperations.vue'),
+          props: route => ({ tab: route.query.tab || 'disputes' })
+        },
+        {
+          path: 'risk',
+          name: 'AdminRisk',
+          component: () => import('@/pages/AdminRisk.vue'),
+          props: route => ({ tab: route.query.tab || 'blacklist' })
+        },
+        {
+          path: 'blacklist',
+          name: 'AdminBlacklist',
+          component: () => import('@/pages/AdminRisk.vue'),
+          props: route => ({ tab: route.query.tab || 'blacklist' })
+        },
+        {
+          path: 'analytics',
+          name: 'AdminAnalytics',
+          component: () => import('@/pages/AdminAnalytics.vue')
+        }
+      ]
     },
     {
       path: '/:pathMatch(.*)*',
@@ -219,9 +237,9 @@ router.beforeEach(async to => {
   }
 
   if (to.meta.requiresAdmin && !userStore.isAdmin) {
-    ElMessage.error('当前账号无管理员权限')
+    ElMessage.error('当前账号没有管理员权限')
 
-    return '/home'
+    return '/403'
   }
 
   if (userStore.isAdmin && to.meta.userArea) {

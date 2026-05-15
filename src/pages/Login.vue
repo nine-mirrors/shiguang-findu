@@ -27,12 +27,24 @@ const rules = {
 }
 
 const getRedirectPath = () => {
-  if (typeof route.query.redirect === 'string') return route.query.redirect
+  const redirect = typeof route.query.redirect === 'string'
+    ? route.query.redirect
+    : ''
 
-  return userStore.isAdmin ? '/admin/dashboard' : '/home'
+  if (userStore.isAdmin) {
+    return redirect.startsWith('/admin') ? redirect : '/admin/dashboard'
+  }
+
+  if (redirect.startsWith('/admin')) {
+    return '/home'
+  }
+
+  return redirect || '/home'
 }
 
 const submit = async () => {
+  if (loading.value) return
+
   await formRef.value.validate()
   loading.value = true
 
@@ -40,6 +52,8 @@ const submit = async () => {
     await userStore.login(form)
     ElMessage.success('登录成功')
     router.push(getRedirectPath())
+  } catch {
+    // 错误已在 request 拦截器中处理
   } finally {
     loading.value = false
   }
@@ -47,54 +61,99 @@ const submit = async () => {
 </script>
 
 <template>
-  <div class="auth-page">
-    <div class="auth-bg-orb orb-a"></div>
-    <div class="auth-bg-orb orb-b"></div>
+  <div class="login-page">
+    <div class="bg-orb orb-one"></div>
+    <div class="bg-orb orb-two"></div>
+    <div class="bg-orb orb-three"></div>
 
-    <section class="auth-card fade-up">
-      <div class="auth-hero">
-        <span class="kicker">拾光 FindU · 校园智能协寻</span>
+    <section class="login-card fade-up">
+      <div class="brand-panel">
+        <div class="brand-top">
+          <div class="brand-logo">拾</div>
 
-        <h1>拾起遗失之物，找回校园微光。</h1>
+          <div>
+            <b>拾光 FindU</b>
+            <span>校园失物招领平台</span>
+          </div>
+        </div>
 
-        <p>“拾”是拾起遗失之物，“光”是照亮线索与善意。拾光 FindU 希望让每一条失物线索被看见，让每一次归还都有回应。</p>
+        <span class="kicker">Campus Lost & Found</span>
+
+        <h1>拾起遗失之物找回校园微光</h1>
+
+        <p>
+          聚合失物发布、管理员审核、图片归档与状态通知，让校园失物信息更有秩序，也让每一次归还有迹可循。
+        </p>
 
         <div class="mini-board">
           <div>
-            <b>拾物</b>
-            <span>统一发布招领</span>
+            <b>审核</b>
+            <span>发布审核闭环</span>
           </div>
 
           <div>
-            <b>寻光</b>
-            <span>快速匹配线索</span>
+            <b>图片</b>
+            <span>图片归档展示</span>
           </div>
 
           <div>
-            <b>闭环</b>
-            <span>认领审核追踪</span>
+            <b>通知</b>
+            <span>状态通知追踪</span>
           </div>
         </div>
       </div>
 
-      <div class="auth-form">
-        <h2>欢迎回来</h2>
+      <div class="form-panel">
+        <div class="form-head">
+          <span class="kicker">账号登录</span>
 
-        <p>使用邮箱和密码登录，进入 FindU 校园失物招领平台。</p>
+          <h2>欢迎回来</h2>
 
-        <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @keyup.enter="submit">
+          <p>使用邮箱和密码登录，进入拾光 FindU 校园失物招领平台。</p>
+        </div>
+
+        <el-form
+          ref="formRef"
+          :model="form"
+          :rules="rules"
+          label-position="top"
+          class="login-form"
+          @keyup.enter="submit"
+        >
           <el-form-item label="邮箱" prop="email">
-            <el-input v-model.trim="form.email" size="large" placeholder="请输入邮箱" />
+            <el-input
+              v-model.trim="form.email"
+              size="large"
+              placeholder="请输入邮箱"
+            />
           </el-form-item>
 
           <el-form-item label="密码" prop="password">
-            <el-input v-model="form.password" size="large" type="password" show-password placeholder="请输入密码" />
+            <el-input
+              v-model="form.password"
+              size="large"
+              type="password"
+              show-password
+              placeholder="请输入密码"
+            />
           </el-form-item>
 
-          <el-button class="full-btn" type="primary" size="large" :loading="loading" @click="submit">登录平台</el-button>
+          <div class="form-extra">
+            <router-link to="/forgot-password">忘记密码？</router-link>
+          </div>
+
+          <el-button
+            class="login-btn"
+            type="primary"
+            size="large"
+            :loading="loading"
+            @click="submit"
+          >
+            登录平台
+          </el-button>
         </el-form>
 
-        <p class="switch">
+        <p class="switch-line">
           还没有账号？
           <router-link to="/register">立即注册</router-link>
         </p>
@@ -104,147 +163,306 @@ const submit = async () => {
 </template>
 
 <style scoped>
-.auth-page {
+.login-page {
+  position: relative;
   min-height: 100vh;
+  padding: 32px;
   display: grid;
   place-items: center;
-  padding: 32px;
-  position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, #f7fbff, #eef3ff 56%, #f9fff9);
+  background:
+    radial-gradient(circle at 16% 18%, rgba(79, 124, 255, .18), transparent 30%),
+    radial-gradient(circle at 86% 82%, rgba(0, 184, 148, .16), transparent 32%),
+    linear-gradient(135deg, #f8fbff 0%, #eef4ff 56%, #f8fffb 100%);
 }
 
-.auth-bg-orb {
+.bg-orb {
   position: absolute;
   border-radius: 999px;
+  pointer-events: none;
   filter: blur(1px);
-  opacity: .55;
 }
 
-.orb-a {
+.orb-one {
   width: 420px;
   height: 420px;
-  background: rgba(79, 124, 255, .18);
-  left: -130px;
-  top: -110px;
+  left: -150px;
+  top: -120px;
+  background: rgba(79, 124, 255, .16);
+  animation: floatSlow 8s infinite;
+}
+
+.orb-two {
+  width: 360px;
+  height: 360px;
+  right: -120px;
+  bottom: -120px;
+  background: rgba(0, 184, 148, .15);
+  animation: floatSlow 9s infinite reverse;
+}
+
+.orb-three {
+  width: 190px;
+  height: 190px;
+  right: 16%;
+  top: 12%;
+  background: rgba(108, 99, 255, .10);
   animation: floatSlow 7s infinite;
 }
 
-.orb-b {
-  width: 360px;
-  height: 360px;
-  background: rgba(0, 184, 148, .16);
-  right: -100px;
-  bottom: -120px;
-  animation: floatSlow 8s infinite reverse;
-}
-
-.auth-card {
-  width: min(1050px, 100%);
+.login-card {
+  position: relative;
+  z-index: 1;
+  width: min(1080px, 100%);
   min-height: 650px;
   display: grid;
-  grid-template-columns: 1.05fr .95fr;
+  grid-template-columns: 1.06fr .94fr;
   overflow: hidden;
-  border-radius: 36px;
-  background: rgba(255, 255, 255, .78);
-  border: 1px solid rgba(255, 255, 255, .78);
-  box-shadow: 0 40px 100px rgba(31, 45, 92, .18);
-  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, .76);
+  border-radius: 38px;
+  background: rgba(255, 255, 255, .82);
+  box-shadow: 0 40px 110px rgba(31, 45, 92, .18);
+  backdrop-filter: blur(18px);
 }
 
-.auth-hero {
-  padding: 58px;
+.brand-panel {
+  position: relative;
+  padding: 54px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  background: radial-gradient(circle at 15% 16%, rgba(255, 255, 255, .75), transparent 20rem), linear-gradient(135deg, rgba(79, 124, 255, .20), rgba(108, 99, 255, .10));
+  justify-content: center;
+  background:
+    radial-gradient(circle at 24% 20%, rgba(79, 124, 255, .18), transparent 34%),
+    radial-gradient(circle at 82% 84%, rgba(0, 184, 148, .13), transparent 32%),
+    linear-gradient(135deg, rgba(248, 251, 255, .94), rgba(238, 244, 255, .72));
 }
 
-.auth-hero h1 {
-  font-size: 48px;
-  line-height: 1.27;
-  letter-spacing: 0;
-  margin: 24px 0 18px;
+.brand-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
 }
 
-.auth-hero p {
-  color: #4b5563;
+.brand-logo {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 1000;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  box-shadow: 0 18px 38px rgba(79, 124, 255, .24);
+}
+
+.brand-top b {
+  display: block;
+  color: var(--ink);
+  font-size: 19px;
+}
+
+.brand-top span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.login-card .kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  color: #315fff;
+  font-weight: 700;
+  font-size: 13px;
+  background: rgba(255, 255, 255, .66);
+  border: 1px solid rgba(79, 124, 255, .16);
+}
+
+.brand-panel h1 {
+  margin: 20px 0 16px;
+  color: var(--ink);
+  font-size: clamp(42px, 5vw, 67px);
+  line-height: 1.1;
+  letter-spacing: normal;
+  text-align: center;
+  opacity: 0.78;
+}
+
+.brand-panel p {
+  max-width: 540px;
+  margin: 0;
+  color: var(--muted);
   line-height: 1.9;
   font-size: 16px;
-  max-width: 520px;
 }
 
 .mini-board {
+  margin-top: 36px;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 14px;
 }
 
 .mini-board div {
-  padding: 18px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, .62);
-  border: 1px solid rgba(255, 255, 255, .75);
+  padding: 18px 14px;
+  border: 1px solid rgba(79, 124, 255, .10);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, .76);
+  box-shadow: 0 14px 34px rgba(31, 45, 92, .08);
+  text-align: center;
+  transition: .22s ease;
+}
+
+.mini-board div:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 42px rgba(31, 45, 92, .12);
 }
 
 .mini-board b {
   display: block;
-  font-size: 25px;
-  letter-spacing: -.04em;
+  margin-bottom: 8px;
+  color: var(--primary-strong);
+  font-size: 18px;
 }
 
 .mini-board span {
   color: var(--muted);
   font-size: 13px;
+  font-weight: 800;
 }
 
-.auth-form {
-  padding: 58px 50px;
+
+.form-panel {
+  padding: 56px;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  background: rgba(255, 255, 255, .92);
 }
 
-.auth-form h2 {
-  font-size: 32px;
-  margin: 0 0 8px;
+.form-head {
+  margin-bottom: 28px;
 }
 
-.auth-form p {
-  margin: 0 0 26px;
+.form-head h2 {
+  margin: 18px 0 10px;
+  color: var(--ink);
+  font-size: 36px;
+  letter-spacing: -.045em;
+}
+
+.form-head p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.login-form {
+  margin-top: 6px;
+}
+
+.form-extra {
+  margin: -4px 0 18px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.form-extra a {
+  color: var(--primary-strong);
+  font-size: 14px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.form-extra a:hover {
+  text-decoration: underline;
+}
+
+.login-btn {
+  width: 100%;
+  height: 46px;
+  border-radius: 999px;
+  font-weight: 900;
+  box-shadow: 0 14px 30px rgba(79, 124, 255, .22);
+}
+
+.switch-line {
+  margin: 22px 0 0;
+  text-align: center;
   color: var(--muted);
 }
 
-.full-btn {
-  width: 100%;
-  height: 48px;
-}
-
-.switch {
-  text-align: center;
-  padding: 20px;
-}
-
-.switch a {
+.switch-line a {
   color: var(--primary-strong);
   font-weight: 900;
+  text-decoration: none;
 }
 
-@media (max-width: 860px) {
-  .auth-card {
+.switch-line a:hover {
+  text-decoration: underline;
+}
+
+@keyframes floatSlow {
+  0% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(18px);
+  }
+
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .login-page {
+    padding: 22px;
+  }
+
+  .login-card {
     grid-template-columns: 1fr;
+    min-height: auto;
   }
 
-  .auth-hero {
-    padding: 36px;
-  }
-
-  .auth-hero h1 {
-    font-size: 34px;
+  .brand-panel,
+  .form-panel {
+    padding: 34px;
   }
 
   .mini-board {
     grid-template-columns: 1fr;
+  }
+
+}
+
+@media (max-width: 520px) {
+  .login-page {
+    padding: 16px;
+  }
+
+  .brand-panel,
+  .form-panel {
+    padding: 28px 22px;
+  }
+
+  .brand-panel h1 {
+    font-size: 40px;
+  }
+
+  .form-head h2 {
+    font-size: 30px;
+  }
+
+  .brand-top {
+    align-items: flex-start;
   }
 }
 </style>

@@ -1,8 +1,10 @@
 <script setup>
 import { onMounted, ref } from 'vue'
+import { formatDateTime } from '@/utils/format'
 import StatCard from '@/components/StatCard.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import AppLoading from '@/components/AppLoading.vue'
 import { getAdminDashboardApi } from '@/api/admin'
 
 const data = ref({
@@ -15,6 +17,7 @@ const data = ref({
   retainedItems: [],
   locations: []
 })
+const loading = ref(false)
 
 const normalizeDashboard = res => {
   const payload = res?.data || res || {}
@@ -32,7 +35,7 @@ const normalizeDashboard = res => {
 }
 
 const getStorageCode = item => item.storageCode || item.storage_code || '未入库'
-const getCreatedAt = item => item.createdAt || item.created_at || '时间待补充'
+const getCreatedAt = item => formatDateTime(item.createdAt || item.created_at || '')
 
 const barWidth = value => {
   const max = Math.max(...(data.value.locations || []).map(item => item.value), 1)
@@ -63,9 +66,17 @@ const todoText = type => {
 }
 
 const load = async () => {
-  const res = await getAdminDashboardApi()
+  loading.value = true
 
-  data.value = normalizeDashboard(res)
+  try {
+    const res = await getAdminDashboardApi()
+
+    data.value = normalizeDashboard(res)
+  } catch {
+    ElMessage.error('加载仪表盘数据失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 onMounted(load)

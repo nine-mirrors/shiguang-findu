@@ -17,6 +17,7 @@ const request = axios.create({
  * - 登录
  * - 注册
  * - 发送邮箱验证码
+ * - 忘记密码 / 重置密码
  * - 分类列表
  * - 失物招领大厅列表
  * - 失物招领详情
@@ -29,6 +30,7 @@ const publicApis = [
   { method: 'post', url: '/api/auth/login' },
   { method: 'post', url: '/api/auth/register' },
   { method: 'post', url: '/api/auth/send-email-code' },
+  { method: 'post', url: '/api/auth/forgot-password' },
   { method: 'get', url: '/api/categories' },
   { method: 'get', url: '/api/lost-found/items' }
 ]
@@ -52,12 +54,32 @@ const isPublicApi = config => {
   })
 }
 
+const getValidationMessage = data => {
+  const validation = data?.errors || data?.data
+  const firstField = validation && Object.keys(validation)[0]
+
+  if (!firstField) return ''
+
+  const value = validation[firstField]
+
+  if (Array.isArray(value)) return value[0]
+  if (typeof value === 'string') return value
+
+  return ''
+}
+
 const redirectToLogin = () => {
   const currentPath = window.location.pathname + window.location.search
 
   if (window.location.pathname === '/login') return
 
   window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`
+}
+
+const redirectToForbidden = () => {
+  if (window.location.pathname === '/403') return
+
+  window.location.href = '/403'
 }
 
 request.interceptors.request.use(
@@ -89,22 +111,28 @@ request.interceptors.response.use(
     }
 
     const status = error.response?.status
-    const validation = error.response?.data?.errors
-    const firstField = validation && Object.keys(validation)[0]
+    const responseData = error.response?.data
 
-    const message = firstField
-      ? validation[firstField]?.[0]
-      : error.response?.data?.message || error.message || '请求失败'
+    const validationMessage = getValidationMessage(responseData)
+    const message = validationMessage || responseData?.message || error.message || '请求失败'
 
     if (!status) {
       ElMessage.error('网络连接失败，请检查后端服务或网络状态')
     } else if (status === 401) {
-      storage.remove('token')
-      storage.remove('user')
-      ElMessage.error('登录状态已失效，请重新登录')
-      redirectToLogin()
+      const url = normalizeUrl(error.config?.url)
+      const isAuthRequest = url === '/api/auth/login' || url === '/api/auth/register' || url.startsWith('/api/auth/')
+
+      if (!isAuthRequest) {
+        storage.remove('token')
+        storage.remove('user')
+        ElMessage.error('登录状态已失效，请重新登录')
+        redirectToLogin()
+      } else {
+        ElMessage.error(message || '账号或密码错误')
+      }
     } else if (status === 403) {
       ElMessage.error('当前账号没有操作权限')
+      redirectToForbidden()
     } else if (status === 404) {
       ElMessage.error('接口不存在，请检查请求地址')
     } else if (status === 422) {

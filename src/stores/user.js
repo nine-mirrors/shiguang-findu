@@ -12,27 +12,42 @@ export const useUserStore = defineStore('user', () => {
 
   const isLogin = computed(() => Boolean(token.value && user.value?.id))
   const isAdmin = computed(() => user.value?.role === 'admin')
+  const isStudent = computed(() => user.value?.role === 'student')
+  const verificationLevel = computed(() => user.value?.verification_level || 'none')
   const displayName = computed(() => user.value?.username || user.value?.name || user.value?.email || '同学')
   const avatarText = computed(() => displayName.value.slice(0, 1))
+
+  const normalizeUser = value => {
+    if (!value) return null
+
+    return {
+      ...value,
+      name: value.name || value.username || value.email || '',
+      username: value.username || value.name || '',
+      role: value.role || 'student',
+      verification_level: value.verification_level || 'none'
+    }
+  }
 
   const normalizeAuthPayload = res => {
     const payload = res?.data || res
 
     return {
       token: payload?.token || '',
-      user: payload?.user || null
+      user: normalizeUser(payload?.user || null)
     }
   }
 
   const normalizeUserPayload = res => {
     const payload = res?.data || res
+    const currentUser = payload?.user || payload
 
-    return payload?.user || payload
+    return normalizeUser(currentUser)
   }
 
   const setAuth = payload => {
     token.value = payload.token
-    user.value = payload.user
+    user.value = normalizeUser(payload.user)
     profileLoaded.value = true
 
     storage.set('token', token.value)
@@ -40,7 +55,7 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const setUser = value => {
-    user.value = value
+    user.value = normalizeUser(value)
     profileLoaded.value = true
     storage.set('user', user.value)
   }
@@ -59,7 +74,7 @@ export const useUserStore = defineStore('user', () => {
     const res = await loginApi(form)
     const payload = normalizeAuthPayload(res)
 
-    if (!payload.token || !payload.user) {
+    if (!payload.token || !payload.user?.id) {
       throw new Error('登录接口返回数据格式不正确')
     }
 
@@ -71,7 +86,7 @@ export const useUserStore = defineStore('user', () => {
     const res = await registerApi(form)
     const payload = normalizeAuthPayload(res)
 
-    if (!payload.token || !payload.user) {
+    if (!payload.token || !payload.user?.id) {
       throw new Error('注册接口返回数据格式不正确')
     }
 
@@ -97,7 +112,10 @@ export const useUserStore = defineStore('user', () => {
       setUser(currentUser)
       return currentUser
     } catch (error) {
-      clearAuth()
+      if (error.response?.status === 401) {
+        clearAuth()
+      }
+
       throw error
     } finally {
       profileLoading.value = false
@@ -133,6 +151,8 @@ export const useUserStore = defineStore('user', () => {
     profileLoading,
     isLogin,
     isAdmin,
+    isStudent,
+    verificationLevel,
     displayName,
     avatarText,
     login,
