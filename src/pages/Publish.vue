@@ -396,10 +396,7 @@ onMounted(async () => {
   await loadEditData()
 
   if (!isEditMode.value) {
-    const restored = loadDraft()
-    if (restored) {
-      ElMessage.success('已恢复上次未提交的填写内容')
-    }
+    loadDraft()
     pageLoading.value = false
   }
 })
@@ -632,7 +629,7 @@ watch(
 
 .page-head h1 {
   margin: 18px 0 12px;
-  font-size: clamp(36px, 5vw, 56px);
+  font-size: clamp(32px, 4vw, 48px);
   line-height: 1.04;
   letter-spacing: -.06em;
 }

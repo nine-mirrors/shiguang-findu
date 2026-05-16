@@ -6,11 +6,15 @@ import EmptyState from '@/components/EmptyState.vue'
 import AppLoading from '@/components/AppLoading.vue'
 import { getCategoriesApi } from '@/api/category'
 import { getItemsApi } from '@/api/item'
+import { getFavoritesApi } from '@/api/favorite'
+import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
+const userStore = useUserStore()
 
-const loading = ref(false)
+const loading = ref(true)
 const items = ref([])
+const favoriteIds = ref(new Set())
 const categoryList = ref([])
 const page = ref(1)
 const pageSize = 6
@@ -54,7 +58,10 @@ const pagedItems = computed(() => {
 })
 
 function normalizeCategories(res) {
-  const list = res?.data || res || []
+  const payload = res?.data || res
+  const list = payload?.list || payload?.data || payload?.items || payload || []
+
+  if (!Array.isArray(list)) return []
 
   return list.map(item => {
     if (typeof item === 'string') {
@@ -78,6 +85,33 @@ function normalizeItems(res) {
   return Array.isArray(list) ? list : []
 }
 
+function normalizeFavorites(res) {
+  const payload = res?.data || res
+  const list = payload?.list || payload?.data || payload?.items || payload || []
+
+  if (!Array.isArray(list)) return []
+
+  return list
+    .map(item => {
+      if (typeof item !== 'object' || item === null) {
+        return String(item)
+      }
+
+      return String(
+        item.item_id ||
+        item.itemId ||
+        item.lost_found_item_id ||
+        item.lostFoundItemId ||
+        item.item?.id ||
+        item.lost_found_item?.id ||
+        item.lostFoundItem?.id ||
+        item.id ||
+        ''
+      )
+    })
+    .filter(Boolean)
+}
+
 function buildParams() {
   const params = {
     page: 1,
@@ -93,7 +127,9 @@ function buildParams() {
   }
 
   if (query.category !== 'all') {
-    const currentCategory = categories.value.find(item => String(item.id) === String(query.category) || item.name === query.category)
+    const currentCategory = categories.value.find(item => {
+      return String(item.id) === String(query.category) || item.name === query.category
+    })
 
     if (currentCategory?.id && !Number.isNaN(Number(currentCategory.id))) {
       params.category_id = currentCategory.id
@@ -122,16 +158,47 @@ async function loadCategories() {
   categoryList.value = normalizeCategories(res)
 }
 
+async function loadFavorites() {
+  if (!userStore.isLogin) {
+    favoriteIds.value = new Set()
+    return
+  }
+
+  try {
+    const res = await getFavoritesApi()
+    const ids = normalizeFavorites(res)
+
+    favoriteIds.value = new Set(ids)
+  } catch {
+    favoriteIds.value = new Set()
+  }
+}
+
 async function load() {
   loading.value = true
   page.value = 1
 
   try {
     const res = await getItemsApi(buildParams())
+
     items.value = normalizeItems(res)
+
+    await loadFavorites()
   } finally {
     loading.value = false
   }
+}
+
+function handleFavoriteChange({ itemId, favorited }) {
+  const next = new Set(favoriteIds.value)
+
+  if (favorited) {
+    next.add(String(itemId))
+  } else {
+    next.delete(String(itemId))
+  }
+
+  favoriteIds.value = next
 }
 
 function syncRoute() {
@@ -160,13 +227,19 @@ watch(() => route.query, syncRoute)
     <section class="page-head fade-up">
       <span class="kicker">失物招领大厅</span>
 
-      <h1>用筛选和匹配，缩短找回路径。</h1>
+      <h1>用筛选和分类，缩短找回路径。</h1>
 
-      <p>已审核通过的信息会出现在大厅。列表切换带有平滑动效，搜索、分类、地点、状态都能组合筛选。</p>
+      <p>已审核通过的信息会出现在大厅。你可以按关键词、分类、地点、状态和照片条件组合筛选。</p>
     </section>
 
     <section class="filter-card glass-card fade-up">
-      <el-input v-model="query.keyword" size="large" clearable placeholder="搜索物品名称、地点、描述关键词" @keyup.enter="load" />
+      <el-input
+        v-model="query.keyword"
+        size="large"
+        clearable
+        placeholder="搜索物品名称、地点、描述关键词"
+        @keyup.enter="load"
+      />
 
       <el-select v-model="query.type" size="large" placeholder="类型" @change="load">
         <el-option label="全部类型" value="all" />
@@ -176,7 +249,12 @@ watch(() => route.query, syncRoute)
 
       <el-select v-model="query.category" size="large" placeholder="分类" @change="load">
         <el-option label="全部分类" value="all" />
-        <el-option v-for="category in categories" :key="category.id || category.name" :label="category.name" :value="category.id || category.name" />
+        <el-option
+          v-for="category in categories"
+          :key="category.id || category.name"
+          :label="category.name"
+          :value="category.id || category.name"
+        />
       </el-select>
 
       <el-select v-model="query.location" size="large" placeholder="地点" @change="load">
@@ -204,14 +282,33 @@ watch(() => route.query, syncRoute)
       <span>当前排序：发布时间倒序</span>
     </div>
 
-    <EmptyState v-if="!loading && !items.length" title="暂时没有匹配的信息" desc="换一个关键词，或者直接发布一条新的失物/招领信息。" button-text="去发布" @action="$router.push('/publish')" />
+    <EmptyState
+      v-if="!loading && !items.length"
+      title="暂时没有符合条件的信息"
+      desc="可以更换关键词或筛选条件，也可以发布一条新的失物 / 招领信息。"
+      button-text="去发布"
+      @action="$router.push('/publish')"
+    />
 
     <TransitionGroup v-else name="list" tag="section" class="item-grid">
-      <ItemCard v-for="item in pagedItems" :key="item.id" :item="item" />
+      <ItemCard
+        v-for="item in pagedItems"
+        :key="item.id"
+        :item="item"
+        show-favorite
+        :favorited="favoriteIds.has(String(item.id))"
+        @favorite-change="handleFavoriteChange"
+      />
     </TransitionGroup>
 
     <div v-if="items.length > pageSize" class="pagination-bar">
-      <el-pagination v-model:current-page="page" background layout="prev, pager, next" :page-size="pageSize" :total="items.length" />
+      <el-pagination
+        v-model:current-page="page"
+        background
+        layout="prev, pager, next"
+        :page-size="pageSize"
+        :total="items.length"
+      />
     </div>
   </div>
 </template>
@@ -228,7 +325,7 @@ watch(() => route.query, syncRoute)
 
 .page-head h1 {
   margin: 18px 0 12px;
-  font-size: clamp(36px, 5vw, 58px);
+  font-size: clamp(32px, 4vw, 48px);
   letter-spacing: -.065em;
   line-height: 1.02;
 }

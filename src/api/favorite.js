@@ -6,7 +6,7 @@ import request from './request'
  *
  * 用途：
  * - 收藏夹页面展示用户收藏过的失物 / 招领信息
- * - 方便用户持续关注物品状态变化
+ * - 失物大厅同步收藏状态
  */
 export const getFavoritesApi = params => {
   return request.get('/api/favorites', {

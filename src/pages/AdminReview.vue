@@ -2,12 +2,14 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElImageViewer } from 'element-plus'
 import { formatDateTime } from '@/utils/format'
 import LineIcon from '@/components/LineIcon.vue'
 import AppLoading from '@/components/AppLoading.vue'
 import {
   auditAdminClaimApi,
   auditAdminItemApi,
+  createDisputeApi,
   deleteAdminItemApi,
   getAdminClaimsApi,
   getAdminItemsApi
@@ -40,6 +42,17 @@ const currentRejectItem = ref(null)
 const claimRejectDialog = ref(false)
 const claimRejectReason = ref('')
 const currentRejectClaim = ref(null)
+
+const disputeDialog = ref(false)
+const disputeReason = ref('')
+const currentDisputeClaim = ref(null)
+const disputeLoading = ref(false)
+
+const itemDetailDialog = ref(false)
+const currentItemDetail = ref(null)
+const itemDetailImages = ref([])
+const imageViewerVisible = ref(false)
+const imageViewerIndex = ref(0)
 
 const normalizeList = res => {
   const payload = res?.data || res
@@ -345,7 +358,60 @@ const goItem = claim => {
     return
   }
 
-  router.push(`/items/${item.id}`)
+  openItemDetail(item)
+}
+
+const openItemDetail = item => {
+  currentItemDetail.value = item
+  itemDetailImages.value = getItemImages(item)
+  itemDetailDialog.value = true
+}
+
+const getItemImages = item => {
+  if (!item) return []
+
+  if (Array.isArray(item.images) && item.images.length) {
+    return item.images.map(img => {
+      if (typeof img === 'string') return getFullImageUrl(img)
+      return getFullImageUrl(img.image_url || img.url || img.path || '')
+    }).filter(Boolean)
+  }
+
+  const singleUrl = item.image || item.image_url || ''
+  return singleUrl ? [getFullImageUrl(singleUrl)] : []
+}
+
+const openDispute = claim => {
+  currentDisputeClaim.value = claim
+  disputeReason.value = ''
+  disputeDialog.value = true
+}
+
+const submitDispute = async () => {
+  if (!currentDisputeClaim.value) return
+
+  if (!disputeReason.value.trim()) {
+    ElMessage.warning('请填写争议原因')
+    return
+  }
+
+  disputeLoading.value = true
+  try {
+    await createDisputeApi({
+      itemId: getClaimItem(currentDisputeClaim.value)?.id,
+      claimId: currentDisputeClaim.value.id,
+      reason: disputeReason.value.trim()
+    })
+    ElMessage.success('争议已登记')
+    disputeDialog.value = false
+    currentDisputeClaim.value = null
+    disputeReason.value = ''
+  } catch (error) {
+    console.error('登记争议失败:', error)
+    ElMessage.error('登记失败，请稍后重试')
+  } finally {
+    disputeLoading.value = false
+  }
 }
 
 watch(
@@ -387,15 +453,15 @@ onMounted(load)
         </div>
 
         <div class="toolbar">
-          <el-radio-group v-model="itemFilter">
-            <el-radio-button label="all">全部</el-radio-button>
-            <el-radio-button label="pending">待审核</el-radio-button>
-            <el-radio-button label="approved">已通过</el-radio-button>
-            <el-radio-button label="rejected">已拒绝</el-radio-button>
-          </el-radio-group>
+  <div class="filter-pills">
+    <button type="button" :class="{ active: itemFilter === 'all' }" @click="itemFilter = 'all'">全部</button>
+    <button type="button" :class="{ active: itemFilter === 'pending' }" @click="itemFilter = 'pending'">待审核</button>
+    <button type="button" :class="{ active: itemFilter === 'approved' }" @click="itemFilter = 'approved'">已通过</button>
+    <button type="button" :class="{ active: itemFilter === 'rejected' }" @click="itemFilter = 'rejected'">已拒绝</button>
+  </div>
 
-          <el-input v-model="keyword" placeholder="搜索物品名称 / 地点 / 描述" clearable />
-        </div>
+  <el-input v-model="keyword" placeholder="搜索物品名称 / 地点 / 描述" clearable />
+</div>
 
         <section class="review-list">
           <div v-for="item in filteredItems" :key="item.id" class="review-row glass-card">
@@ -419,7 +485,7 @@ onMounted(load)
                 {{ getCategoryName(item) }} · {{ item.location }} · {{ getHappenTime(item) }} · 发布人 #{{ getUserId(item) }}
               </div>
 
-              <div class="privacy-line">联系方式仅后台核验可见，前台展示需脱敏。</div>
+              <div class="privacy-line">联系方式仅管理员核验可见，公开页面展示时应进行脱敏处理。</div>
             </div>
 
             <div class="actions">
@@ -427,6 +493,7 @@ onMounted(load)
               <el-button type="danger" plain :disabled="getAuditStatus(item) === 'rejected'" @click="openReject(item)">拒绝</el-button>
               <el-button plain type="warning" @click="markDuplicate(item)">疑似重复</el-button>
               <el-button plain type="info" @click="removeItem(item)">删除</el-button>
+              <el-button plain @click="openItemDetail(item)">查看详情</el-button>
             </div>
           </div>
 
@@ -460,13 +527,13 @@ onMounted(load)
         </div>
 
         <div class="toolbar">
-          <el-radio-group v-model="claimFilter">
-            <el-radio-button label="all">全部</el-radio-button>
-            <el-radio-button label="pending">待核验</el-radio-button>
-            <el-radio-button label="handover">待交接</el-radio-button>
-            <el-radio-button label="rejected">已拒绝</el-radio-button>
-            <el-radio-button label="completed">已完成</el-radio-button>
-          </el-radio-group>
+          <div class="filter-pills">
+            <button type="button" :class="{ active: claimFilter === 'all' }" @click="claimFilter = 'all'">全部</button>
+            <button type="button" :class="{ active: claimFilter === 'pending' }" @click="claimFilter = 'pending'">待核验</button>
+            <button type="button" :class="{ active: claimFilter === 'handover' }" @click="claimFilter = 'handover'">待交接</button>
+            <button type="button" :class="{ active: claimFilter === 'rejected' }" @click="claimFilter = 'rejected'">已拒绝</button>
+            <button type="button" :class="{ active: claimFilter === 'completed' }" @click="claimFilter = 'completed'">已完成</button>
+          </div>
 
           <el-input v-model="keyword" placeholder="搜索关联物品 / 证明内容 / 联系电话" clearable />
         </div>
@@ -491,10 +558,6 @@ onMounted(load)
                 {{ getClaimMethod(claim) === 'delivery' ? '邮寄领取' : '线下领取' }} · {{ claim.phone || '未填写联系电话' }} · {{ getClaimCreatedAt(claim) }}
               </div>
 
-              <div class="identity-line">
-                通过审核只代表证明材料初步通过；线下交接仍需核验学生证、校园卡或其他校园身份凭证，邮寄前需核验注册邮箱、认领联系电话、校园身份信息和物品归属证明。
-              </div>
-
               <div v-if="getClaimDeliveryAddress(claim)" class="privacy-line">
                 收件地址：仅核验通过后用于邮寄交接，不在公开页面展示。
               </div>
@@ -507,6 +570,7 @@ onMounted(load)
             <div class="actions">
               <el-button type="success" :disabled="['approved', 'handover_pending', 'completed'].includes(claim.status)" @click="approveClaim(claim)">核验通过</el-button>
               <el-button type="danger" plain :disabled="claim.status === 'rejected' || claim.status === 'completed'" @click="openRejectClaim(claim)">驳回</el-button>
+              <el-button plain type="warning" @click="openDispute(claim)">登记争议</el-button>
               <el-button plain @click="goItem(claim)">查看关联信息</el-button>
             </div>
           </div>
@@ -540,6 +604,75 @@ onMounted(load)
         <el-button type="danger" @click="confirmRejectClaim">确认驳回</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="disputeDialog" title="登记争议" width="480px">
+      <p style="margin-bottom: 16px; color: var(--muted);">
+        如果该认领申请存在纠纷（如多人同时认领、证明材料冲突等），请登记争议原因。
+      </p>
+      <el-input
+        v-model="disputeReason"
+        type="textarea"
+        :rows="4"
+        placeholder="例如：多人同时认领同一物品，证明材料冲突；物品归属存在疑问等"
+      />
+
+      <template #footer>
+        <el-button @click="disputeDialog = false">取消</el-button>
+        <el-button type="warning" :loading="disputeLoading" @click="submitDispute">确认登记</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="itemDetailDialog" title="物品详情" width="720px" class="item-detail-dialog" append-to-body>
+      <div v-if="currentItemDetail" class="detail-content">
+        <div v-if="itemDetailImages.length" class="detail-images">
+          <img
+            v-for="(url, idx) in itemDetailImages"
+            :key="idx"
+            :src="url"
+            :alt="`物品照片 ${idx + 1}`"
+            @click="imageViewerIndex = idx; imageViewerVisible = true"
+          />
+        </div>
+
+        <el-image-viewer
+          v-if="imageViewerVisible"
+          :url-list="itemDetailImages"
+          :initial-index="imageViewerIndex"
+          @close="imageViewerVisible = false"
+        />
+
+        <div class="detail-info">
+          <h3>{{ currentItemDetail.name }}</h3>
+
+          <div class="detail-tags">
+            <el-tag :type="currentItemDetail.type === 'lost' ? 'primary' : 'success'">
+              {{ currentItemDetail.type === 'lost' ? '失物' : '招领' }}
+            </el-tag>
+            <el-tag :type="auditType(getAuditStatus(currentItemDetail))">
+              {{ auditText(getAuditStatus(currentItemDetail)) }}
+            </el-tag>
+            <el-tag v-if="isValuable(currentItemDetail)" type="warning">贵重物品</el-tag>
+          </div>
+
+          <p class="detail-desc">{{ currentItemDetail.description || '暂无描述' }}</p>
+
+          <div class="detail-meta">
+            <div><b>分类：</b>{{ getCategoryName(currentItemDetail) }}</div>
+            <div><b>地点：</b>{{ currentItemDetail.location || '未填写' }}</div>
+            <div><b>时间：</b>{{ getHappenTime(currentItemDetail) }}</div>
+            <div><b>发布人ID：</b>#{{ getUserId(currentItemDetail) }}</div>
+          </div>
+
+          <div v-if="currentItemDetail.contact" class="detail-contact">
+            <b>联系方式（管理员可见）：</b>{{ currentItemDetail.contact }}
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="itemDetailDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -549,6 +682,7 @@ onMounted(load)
   grid-template-columns: repeat(4, 1fr);
   gap: 14px;
   margin-bottom: 16px;
+  padding: 6px;
 }
 
 .review-overview button {
@@ -581,9 +715,40 @@ onMounted(load)
 .toolbar {
   margin-bottom: 18px;
   display: grid;
-  grid-template-columns: auto minmax(240px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
   gap: 14px;
   align-items: center;
+}
+
+.filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.filter-pills button {
+  min-width: 76px;
+  padding: 9px 16px;
+  border: 1px solid rgba(79, 124, 255, .14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .78);
+  color: #64748b;
+  font-weight: 900;
+  cursor: pointer;
+  transition: .22s ease;
+}
+
+.filter-pills button:hover {
+  color: var(--primary-strong);
+  border-color: rgba(79, 124, 255, .34);
+  background: rgba(79, 124, 255, .06);
+}
+
+.filter-pills button.active {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  box-shadow: 0 12px 26px rgba(79, 124, 255, .20);
 }
 
 .admin-tabs {
@@ -722,6 +887,83 @@ onMounted(load)
 
   .actions {
     justify-content: flex-start;
+  }
+}
+
+/* 物品详情弹窗 */
+.detail-content {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.detail-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.detail-images img {
+  width: 120px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #f8fbff;
+  cursor: zoom-in;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.detail-images img:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 16px rgba(79, 124, 255, 0.25);
+}
+
+.detail-info h3 {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+
+.detail-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.detail-desc {
+  color: var(--muted);
+  line-height: 1.75;
+  margin: 0 0 16px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(248, 251, 255, .72);
+}
+
+.detail-meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.detail-meta > div {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(79, 124, 255, .06);
+  font-size: 14px;
+}
+
+.detail-contact {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(0, 184, 148, .08);
+  color: #047857;
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .detail-meta {
+    grid-template-columns: 1fr;
   }
 }
 </style>

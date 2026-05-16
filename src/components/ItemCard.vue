@@ -1,16 +1,44 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { addFavoriteApi, removeFavoriteApi } from '@/api/favorite'
+import { useUserStore } from '@/stores/user'
+import { storage } from '@/utils/storage'
 import { formatDateTime } from '@/utils/format'
 
 const props = defineProps({
   item: {
     type: Object,
     required: true
+  },
+  showFavorite: {
+    type: Boolean,
+    default: false
+  },
+  favorited: {
+    type: Boolean,
+    default: false
   }
 })
 
+const emit = defineEmits(['update:favorited', 'favorite-change'])
+
+const userStore = useUserStore()
 const router = useRouter()
+
+const isFavorited = ref(props.favorited)
+const favoriteLoading = ref(false)
+const hasLoginToken = () => {
+  return Boolean(userStore.token || storage.get('token', ''))
+}
+
+watch(
+  () => props.favorited,
+  value => {
+    isFavorited.value = value
+  }
+)
 
 const itemType = computed(() => props.item.type || 'lost')
 
@@ -26,26 +54,39 @@ const itemCategory = computed(() => {
   return props.item.category_name || '其他'
 })
 
+const getFullImageUrl = url => {
+  if (!url) return ''
+  if (/^https?:\/\//.test(url)) return url
+
+  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+
+  if (url.startsWith('/storage/')) return `${baseURL}${url}`
+  if (url.startsWith('storage/')) return `${baseURL}/${url}`
+
+  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
+}
+
 const itemImage = computed(() => {
+  let url = ''
+
   if (props.item.image) {
-    return props.item.image
-  }
-
-  if (props.item.image_url) {
-    return props.item.image_url
-  }
-
-  if (Array.isArray(props.item.images) && props.item.images.length) {
+    url = props.item.image
+  } else if (props.item.image_url) {
+    url = props.item.image_url
+  } else if (Array.isArray(props.item.images) && props.item.images.length) {
     const firstImage = props.item.images[0]
 
-    return typeof firstImage === 'string' ? firstImage : firstImage.image_url || firstImage.url || ''
+    url = typeof firstImage === 'string'
+      ? firstImage
+      : firstImage.image_url || firstImage.url || firstImage.path || ''
   }
 
-  return ''
+  return getFullImageUrl(url?.trim?.() || '')
 })
 
 const itemTime = computed(() => {
   const raw = props.item.happenTime || props.item.happen_time || props.item.created_at || ''
+
   return formatDateTime(raw)
 })
 
@@ -54,7 +95,7 @@ const isValuable = computed(() => {
 })
 
 const storageText = computed(() => {
-  return props.item.storageCode || props.item.storage_code || (itemType.value === 'found' ? '待入库' : '待匹配')
+  return props.item.storageCode || props.item.storage_code || (itemType.value === 'found' ? '待入库' : '待核对')
 })
 
 const categoryClass = computed(() => {
@@ -83,11 +124,65 @@ const statusClass = computed(() => {
   return ['done', 'completed'].includes(props.item.status) ? 'status-dot status-done' : 'status-dot status-open'
 })
 
-function goDetail() {
+async function toggleFavorite() {
+  if (!props.item?.id) {
+    ElMessage.warning('物品信息缺少 ID')
+    return
+  }
+
+  if (!hasLoginToken()) {
+    ElMessage.warning('请先登录后再收藏')
+    return
+  }
+
+  if (favoriteLoading.value) return
+
+  favoriteLoading.value = true
+
+  try {
+    if (!isFavorited.value) {
+      await addFavoriteApi(props.item.id)
+
+      isFavorited.value = true
+
+      emit('update:favorited', true)
+      emit('favorite-change', {
+        itemId: props.item.id,
+        favorited: true
+      })
+
+      ElMessage.success('已加入收藏夹')
+      return
+    }
+
+    await ElMessageBox.confirm('是否取消收藏？', '提示', {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+
+    await removeFavoriteApi(props.item.id)
+
+    isFavorited.value = false
+
+    emit('update:favorited', false)
+    emit('favorite-change', {
+      itemId: props.item.id,
+      favorited: false
+    })
+
+    ElMessage.success('已取消收藏')
+  } finally {
+    favoriteLoading.value = false
+  }
+}
+
+const goDetail = () => {
   if (!props.item?.id) {
     ElMessage.warning('物品信息不完整')
     return
   }
+
   router.push(`/items/${props.item.id}`)
 }
 </script>
@@ -96,19 +191,42 @@ function goDetail() {
   <article class="item-card" @click="goDetail">
     <div class="visual" :class="itemType">
       <img v-if="itemImage" :src="itemImage" alt="物品照片" />
+
       <div v-else class="fallback-icon" :class="categoryClass">
-        <span></span>
+        <span class="fallback-label">物品照片</span>
       </div>
 
       <div class="badge-row">
-        <el-tag class="soft-tag" :class="itemType === 'lost' ? 'type-lost' : 'type-found'">{{ itemType === 'lost' ? '失物' : '招领' }}</el-tag>
+        <el-tag class="soft-tag" :class="itemType === 'lost' ? 'type-lost' : 'type-found'">
+          {{ itemType === 'lost' ? '失物' : '招领' }}
+        </el-tag>
+
         <el-tag v-if="isValuable" class="soft-tag valuable-tag">贵重</el-tag>
       </div>
+
+      <button
+  v-if="showFavorite"
+  type="button"
+  class="fav-btn"
+  :class="{ favorited: isFavorited }"
+  :disabled="favoriteLoading"
+  :title="isFavorited ? '已收藏' : '收藏'"
+  @click.stop.prevent="toggleFavorite"
+>
+        <svg v-if="!isFavorited" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+        </svg>
+
+        <svg v-else viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+        </svg>
+      </button>
     </div>
 
     <div class="body">
       <div class="title-row">
         <h3>{{ item.name || '未命名物品' }}</h3>
+
         <span class="status">
           <i :class="statusClass"></i>
           {{ statusText }}
@@ -126,7 +244,7 @@ function goDetail() {
 
       <div class="card-footer">
         <small>{{ storageText }}</small>
-        <small>{{ itemImage ? '有照片可比对' : '暂无照片' }}</small>
+        <small>{{ itemImage ? '有照片可核对' : '暂无照片' }}</small>
       </div>
     </div>
   </article>
@@ -188,15 +306,10 @@ function goDetail() {
   z-index: 2;
   top: 14px;
   left: 14px;
-  right: 14px;
+  right: 50px;
   display: flex;
   justify-content: space-between;
   gap: 8px;
-}
-
-.match-tag {
-  color: #7c3aed;
-  background: rgba(124, 58, 237, .10);
 }
 
 .valuable-tag {
@@ -207,8 +320,9 @@ function goDetail() {
 .fallback-icon {
   width: 86px;
   height: 86px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
   border-radius: 30px;
   background: rgba(255, 255, 255, .72);
@@ -216,7 +330,16 @@ function goDetail() {
   animation: floatSlow 5.4s ease-in-out infinite;
 }
 
-.fallback-icon span,
+.fallback-icon .fallback-label {
+  position: relative;
+  z-index: 2;
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.fallback-icon span:not(.fallback-label),
 .fallback-icon::before,
 .fallback-icon::after {
   content: '';
@@ -386,15 +509,6 @@ function goDetail() {
   padding-top: 3px;
 }
 
-.match-reason {
-  margin-bottom: 10px;
-  padding: 9px 11px;
-  border-radius: 14px;
-  color: #5b21b6;
-  background: rgba(124, 58, 237, .08);
-  font-size: 13px;
-}
-
 .meta {
   display: grid;
   grid-template-columns: 16px auto 16px auto;
@@ -460,5 +574,47 @@ function goDetail() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.fav-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .9);
+  color: #f59e0b;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .12);
+  transition: .2s ease;
+}
+
+.fav-btn:hover {
+  background: #f59e0b;
+  color: #fff;
+}
+
+.fav-btn.favorited {
+  color: #10b981;
+}
+
+.fav-btn.favorited:hover {
+  background: #10b981;
+  color: #fff;
+}
+
+.fav-btn:disabled {
+  opacity: .7;
+  cursor: not-allowed;
+}
+
+.fav-btn svg {
+  pointer-events: none;
 }
 </style>

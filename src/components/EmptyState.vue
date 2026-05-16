@@ -1,7 +1,5 @@
   <script setup>
-import LineIcon from './LineIcon.vue'
-
-const props = defineProps({
+  const props = defineProps({
     title: {
       type: String,
       default: '暂无数据'
@@ -23,9 +21,7 @@ const props = defineProps({
 
   <template>
     <div class="empty-state">
-      <div class="empty-illustration float-slow">
-        <LineIcon name="search" tone="blue" />
-      </div>
+      <div class="empty-illustration float-slow">🔎</div>
 
       <h3>{{ props.title }}</h3>
 

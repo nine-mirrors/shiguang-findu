@@ -1,7 +1,6 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { getFavoritesApi, removeFavoriteApi } from '@/api/favorite'
+import { getFavoritesApi } from '@/api/favorite'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
 
@@ -34,22 +33,10 @@ const loadFavorites = async () => {
   }
 }
 
-const removeFavorite = async item => {
-  if (!item?.id) return ElMessage.warning('收藏记录缺少物品 ID')
-
-  await ElMessageBox.confirm(
-    `确定取消收藏「${item.name || '该物品'}」吗？`,
-    '取消收藏',
-    {
-      type: 'warning',
-      confirmButtonText: '确认取消',
-      cancelButtonText: '再想想'
-    }
-  )
-
-  await removeFavoriteApi(item.id)
-  ElMessage.success('已取消收藏')
-  await loadFavorites()
+const handleFavoriteChange = ({ itemId, favorited }) => {
+  if (!favorited) {
+    items.value = items.value.filter(item => String(item.id) !== String(itemId))
+  }
 }
 
 onMounted(loadFavorites)
@@ -84,11 +71,13 @@ onMounted(loadFavorites)
 
     <TransitionGroup v-else-if="items.length" name="list" tag="section" class="item-grid">
       <div v-for="item in items" :key="item.id" class="favorite-card-wrap">
-        <ItemCard :item="item" />
-
-        <div class="favorite-actions">
-          <el-button plain size="small" @click="$router.push(`/items/${item.id}`)">查看详情</el-button>
-          <el-button plain size="small" type="danger" @click="removeFavorite(item)">取消收藏</el-button>
+        <div class="card-overlay-wrap">
+          <ItemCard
+            :item="item"
+            show-favorite
+            :favorited="true"
+            @favorite-change="handleFavoriteChange"
+          />
         </div>
       </div>
     </TransitionGroup>
@@ -116,7 +105,7 @@ onMounted(loadFavorites)
 }
 
 .page-title h1 {
-  font-size: clamp(36px, 5vw, 56px);
+  font-size: clamp(32px, 4vw, 48px);
   line-height: 1.02;
   letter-spacing: -.06em;
   margin: 18px 0 12px;
@@ -141,14 +130,8 @@ onMounted(loadFavorites)
   gap: 12px;
 }
 
-.favorite-actions {
-  padding: 12px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, .78);
-  box-shadow: 0 12px 28px rgba(31, 45, 92, .08);
+.card-overlay-wrap {
+  position: relative;
 }
 
 .skeleton-card {
@@ -182,11 +165,6 @@ onMounted(loadFavorites)
   .item-grid,
   .loading-grid {
     grid-template-columns: 1fr;
-  }
-
-  .favorite-actions {
-    justify-content: flex-start;
-    flex-wrap: wrap;
   }
 }
 </style>

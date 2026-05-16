@@ -406,7 +406,7 @@ watch(() => route.params.id, load)
 
 .detail-copy h1 {
   margin: 22px 0 14px;
-  font-size: clamp(34px, 5vw, 58px);
+  font-size: clamp(32px, 4vw, 48px);
   letter-spacing: -.06em;
 }
 

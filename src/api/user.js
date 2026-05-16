@@ -38,3 +38,25 @@ export const updateUserProfileApi = data => {
     avatar: data.avatar || ''
   })
 }
+
+/**
+ * 第二优先级：用户注销账号
+ * 文档补充接口：POST /api/user/cancel
+ *
+ * 用途：
+ * - 当前登录用户申请注销账号
+ * - 注销前需要校验密码和邮箱验证码
+ * - 后端应采用软注销 / 停用账号，不建议物理删除用户记录
+ *
+ * 字段：
+ * - email_code：邮箱验证码
+ * - password：当前登录密码
+ * - reason：注销原因，可选
+ */
+export const cancelUserAccountApi = data => {
+  return request.post('/api/user/cancel', {
+    email_code: data.emailCode,
+    password: data.password,
+    reason: data.reason || ''
+  })
+}

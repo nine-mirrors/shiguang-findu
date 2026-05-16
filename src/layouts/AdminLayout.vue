@@ -34,11 +34,11 @@ const links = [
     desc: '交接、滞留移交、公告与争议处理'
   },
   {
-    label: '用户风控',
-    path: '/admin/blacklist',
-    icon: 'alert',
-    tone: 'red',
-    desc: '实名认证、异常用户与黑名单'
+  label: '认证风控',
+  path: '/admin/verifications',
+  icon: 'user-check',
+  tone: 'orange',
+  desc: '实名认证审核、异常用户与黑名单'
   },
   {
     label: '数据分析',
@@ -50,6 +50,10 @@ const links = [
 ]
 
 const current = computed(() => {
+  if (route.path.startsWith('/admin/blacklist') || route.path.startsWith('/admin/risk')) {
+    return links.find(link => link.path === '/admin/verifications') || links[0]
+  }
+
   return links.find(link => route.path.startsWith(link.path)) || links[0]
 })
 
@@ -84,7 +88,7 @@ const refreshPage = () => {
 
         <div>
           <b>管理员工作台</b>
-          <p>只负责审核、交接、风控和运营，不参与前台发布。</p>
+          <p>负责内容审核、认领核验、物品交接、风险管控及平台运营管理。</p>
         </div>
       </div>
 

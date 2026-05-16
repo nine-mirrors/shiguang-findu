@@ -26,23 +26,12 @@ defineProps({
   delay: {
     type: Number,
     default: 0
-  },
-  clickable: {
-    type: Boolean,
-    default: false
   }
 })
-
-defineEmits(['click'])
 </script>
 
 <template>
-  <div
-    class="stat-card fade-up"
-    :class="{ 'stat-card-clickable': clickable }"
-    :style="{ animationDelay: `${delay}ms` }"
-    @click="$emit('click')"
-  >
+  <div class="stat-card fade-up" :style="{ animationDelay: `${delay}ms` }">
     <LineIcon :name="icon" :tone="tone" />
 
     <div>
@@ -71,14 +60,6 @@ defineEmits(['click'])
 .stat-card:hover {
   transform: translateY(-6px);
   box-shadow: 0 24px 60px rgba(31, 45, 92, .14);
-}
-
-.stat-card-clickable {
-  cursor: pointer;
-}
-
-.stat-card-clickable:hover {
-  border-color: #3b82f6;
 }
 
 .stat-value {

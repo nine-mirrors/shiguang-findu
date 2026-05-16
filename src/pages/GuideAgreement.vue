@@ -175,7 +175,7 @@ const flow = [
 
 .guide-hero h1 {
   margin: 18px 0;
-  font-size: clamp(38px, 6vw, 68px);
+  font-size: clamp(32px, 4vw, 48px);
   line-height: .98;
   letter-spacing: -.065em;
 }

@@ -185,6 +185,12 @@ const router = createRouter({
           props: route => ({ tab: route.query.tab || 'blacklist' })
         },
         {
+          path: 'verifications',
+          name: 'AdminVerifications',
+          component: () => import('@/pages/AdminRisk.vue'),
+          props: route => ({ tab: route.query.tab || 'verify' })
+        },
+        {
           path: 'blacklist',
           name: 'AdminBlacklist',
           component: () => import('@/pages/AdminRisk.vue'),

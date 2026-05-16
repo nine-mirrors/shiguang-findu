@@ -34,8 +34,9 @@ export const registerApi = data => {
  * 文档接口：POST /api/auth/send-email-code
  *
  * type：
- * - register
- * - forgot_password
+ * - register：注册验证码
+ * - forgot_password：忘记密码验证码
+ * - cancel_account：注销账号验证码
  */
 export const sendEmailCodeApi = (email, type = 'register') => {
   return request.post('/api/auth/send-email-code', {
@@ -67,4 +68,3 @@ export const forgotPasswordApi = data => {
 export const logoutApi = () => {
   return request.post('/api/auth/logout')
 }
-

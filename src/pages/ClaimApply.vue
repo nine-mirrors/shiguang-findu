@@ -71,6 +71,20 @@ const itemImage = computed(() => {
   return getFullImageUrl(url)
 })
 
+const itemImages = computed(() => {
+  if (!item.value) return []
+
+  if (Array.isArray(item.value.images) && item.value.images.length) {
+    return item.value.images.map(img => {
+      if (typeof img === 'string') return getFullImageUrl(img)
+      return getFullImageUrl(img.image_url || img.url || img.path || '')
+    }).filter(Boolean)
+  }
+
+  const singleUrl = item.value.image || item.value.image_url || ''
+  return singleUrl ? [getFullImageUrl(singleUrl)] : []
+})
+
 const itemTime = computed(() => {
   const raw = item.value?.happenTime || item.value?.happen_time || item.value?.created_at || ''
   return formatDateTime(raw)
@@ -240,16 +254,24 @@ onMounted(loadItem)
       </div>
 
       <div class="claim-item-card">
-        <img v-if="itemImage" :src="itemImage" alt="物品照片" />
-
-        <div v-else class="claim-item-fallback">
-          {{ itemCategory }}
-        </div>
-
-        <div>
+        <div class="claim-item-info">
           <b>{{ item.name }}</b>
           <span>{{ item.location }} · {{ itemTime }}</span>
           <small>{{ storageText }}</small>
+        </div>
+
+        <div class="claim-item-images" :class="`count-${Math.min(itemImages.length, 3)}`">
+          <template v-if="itemImages.length">
+            <img
+              v-for="(url, idx) in itemImages.slice(0, 3)"
+              :key="idx"
+              :src="url"
+              :alt="`平台物品照片 ${idx + 1}`"
+            />
+          </template>
+          <div v-else class="claim-item-fallback">
+            {{ itemCategory }}
+          </div>
         </div>
       </div>
     </section>
@@ -266,15 +288,22 @@ onMounted(loadItem)
         </div>
 
         <el-form-item label="申请类型" prop="claimType">
-          <el-radio-group v-model="form.claimType" class="type-group">
-            <el-radio-button
+          <div class="type-group">
+            <label
               v-for="type in availableClaimTypes"
               :key="type.value"
-              :label="type.value"
+              class="radio-label"
+              :class="{ active: form.claimType === type.value }"
             >
-              {{ type.label }}
-            </el-radio-button>
-          </el-radio-group>
+              <input
+                v-model="form.claimType"
+                type="radio"
+                :value="type.value"
+                name="claimType"
+              />
+              <span>{{ type.label }}</span>
+            </label>
+          </div>
         </el-form-item>
 
         <el-form-item label="证明或说明内容" prop="proofText">
@@ -307,10 +336,32 @@ onMounted(loadItem)
         </div>
 
         <el-form-item v-if="form.claimType === 'claim'" label="领取方式" prop="pickupMethod">
-          <el-radio-group v-model="form.pickupMethod">
-            <el-radio-button label="offline">线下领取</el-radio-button>
-            <el-radio-button label="delivery">邮寄到付 / 协商邮寄</el-radio-button>
-          </el-radio-group>
+          <div class="type-group">
+            <label
+              class="radio-label"
+              :class="{ active: form.pickupMethod === 'offline' }"
+            >
+              <input
+                v-model="form.pickupMethod"
+                type="radio"
+                value="offline"
+                name="pickupMethod"
+              />
+              <span>线下领取</span>
+            </label>
+            <label
+              class="radio-label"
+              :class="{ active: form.pickupMethod === 'delivery' }"
+            >
+              <input
+                v-model="form.pickupMethod"
+                type="radio"
+                value="delivery"
+                name="pickupMethod"
+              />
+              <span>邮寄到付 / 协商邮寄</span>
+            </label>
+          </div>
         </el-form-item>
 
         <div v-if="form.claimType === 'claim'" class="identity-note">
@@ -397,7 +448,7 @@ onMounted(loadItem)
 
 .claim-hero h1 {
   margin: 18px 0;
-  font-size: clamp(38px, 6vw, 64px);
+  font-size: clamp(32px, 4vw, 48px);
   line-height: .98;
   letter-spacing: -.065em;
 }
@@ -411,24 +462,56 @@ onMounted(loadItem)
 .claim-item-card {
   padding: 16px;
   display: flex;
+  flex-direction: column;
   gap: 14px;
-  align-items: center;
   border-radius: 30px;
   background: rgba(255, 255, 255, .82);
   box-shadow: var(--shadow);
+  height: 100%;
 }
 
-.claim-item-card img {
-  width: 118px;
-  height: 92px;
-  object-fit: contain;
+.claim-item-info {
+  flex-shrink: 0;
+}
+
+.claim-item-images {
+  flex: 1;
+  display: grid;
+  gap: 10px;
+  min-height: 0;
   border-radius: 22px;
+  overflow: hidden;
+}
+
+.claim-item-images.count-1 {
+  grid-template-columns: 1fr;
+}
+
+.claim-item-images.count-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.claim-item-images.count-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.claim-item-images.count-0 {
+  grid-template-columns: 1fr;
+}
+
+.claim-item-images img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 16px;
   background: #f8fbff;
+  display: block;
 }
 
 .claim-item-fallback {
-  width: 118px;
-  height: 92px;
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
   display: grid;
   place-items: center;
   border-radius: 22px;
@@ -437,13 +520,13 @@ onMounted(loadItem)
   font-weight: 900;
 }
 
-.claim-item-card b {
+.claim-item-info b {
   display: block;
   font-size: 19px;
 }
 
-.claim-item-card span,
-.claim-item-card small {
+.claim-item-info span,
+.claim-item-info small {
   display: block;
   margin-top: 6px;
   color: var(--muted);
@@ -478,7 +561,41 @@ onMounted(loadItem)
 .type-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
+}
+
+.radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .72);
+  border: 1.5px solid rgba(17, 24, 39, .08);
+  cursor: pointer;
+  transition: all .2s ease;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.radio-label:hover {
+  border-color: rgba(79, 124, 255, .35);
+  background: rgba(79, 124, 255, .06);
+}
+
+.radio-label.active {
+  border-color: var(--primary-strong);
+  background: rgba(79, 124, 255, .10);
+  color: var(--primary-strong);
+  font-weight: 600;
+}
+
+.radio-label input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary-strong);
+  cursor: pointer;
+  margin: 0;
 }
 
 .identity-note {

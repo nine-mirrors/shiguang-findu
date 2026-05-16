@@ -71,7 +71,7 @@ const handleCommand = async command => {
 
           <el-dropdown v-if="userStore.isLogin" @command="handleCommand">
             <button class="user-btn">
-              <el-avatar :size="34">{{ userStore.avatarText }}</el-avatar>
+              <span class="nav-avatar">{{ userStore.avatarText }}</span>
               <span>{{ userStore.displayName }}</span>
             </button>
 
@@ -179,6 +179,18 @@ const handleCommand = async command => {
   cursor: pointer;
   color: var(--ink);
   font-weight: 800;
+}
+
+.nav-avatar {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #315fff, #4f7cff);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .layout-main {

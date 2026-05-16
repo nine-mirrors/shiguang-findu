@@ -293,7 +293,7 @@ onMounted(load)
 
 .page-title h1 {
   max-width: 880px;
-  font-size: clamp(36px, 5vw, 58px);
+  font-size: clamp(32px, 4vw, 48px);
   line-height: 1.02;
   letter-spacing: -.06em;
   margin: 18px 0 12px;

@@ -1,29 +1,56 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { formatDateTime } from '@/utils/format'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import LineIcon from '@/components/LineIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
-import AppLoading from '@/components/AppLoading.vue'
-import { addAdminBlacklistApi, getAdminBlacklistsApi } from '@/api/admin'
+import {
+  addAdminBlacklistApi,
+  auditAdminVerificationApi,
+  deleteAdminBlacklistApi,
+  getAdminBlacklistsApi,
+  getAdminVerificationsApi,
+  releaseAdminBlacklistApi
+} from '@/api/admin'
+import { fetchAdminUsers } from '@/api/lostFound'
 
 const props = defineProps({
   tab: {
     type: String,
-    default: 'blacklist'
+    default: 'verify'
   }
 })
+const blacklistTab = ref('create')
+const active = ref(props.tab || 'verify')
 
-const active = ref(props.tab)
 const blacklists = ref([])
+const verifications = ref([])
+
 const loading = ref(false)
-const pageLoading = ref(false)
+const verifyLoading = ref(false)
 const submitLoading = ref(false)
+
+const verifyStatus = ref('pending')
+const verifyLevel = ref('all')
+const verifyKeyword = ref('')
+
+const rejectDialog = ref(false)
+const rejectReason = ref('')
+const currentRejectVerification = ref(null)
+
+const releaseDialog = ref(false)
+const releaseReason = ref('')
+const currentReleaseBlacklist = ref(null)
+
+const userSearchLoading = ref(false)
+const userSearchOptions = ref([])
 
 const form = reactive({
   userId: '',
   reason: '',
-  limitType: 'all'
+  limitType: 'all',
+  startedAt: '',
+  expiresAt: '',
+  isPermanent: true
 })
 
 const normalizeList = res => {
@@ -33,14 +60,63 @@ const normalizeList = res => {
   return Array.isArray(list) ? list : []
 }
 
+const formatDateTime = value => {
+  if (!value) return ''
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return value
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}-${month}-${day} ${hour}:${minute}`
+}
+
 const getUser = item => item.user || item.member || null
-const getUsername = item => getUser(item)?.username || item.username || `用户 #${item.user_id || item.userId || '-'}`
+const getUsername = item => getUser(item)?.username || getUser(item)?.name || item.username || `用户 #${item.user_id || item.userId || '-'}`
 const getEmail = item => getUser(item)?.email || item.email || '邮箱未返回'
 const getUserId = item => item.user_id || item.userId || getUser(item)?.id || '-'
 const getReason = item => item.reason || '未填写原因'
 const getStatus = item => item.status || 'active'
 const getLimitType = item => item.limit_type || item.limitType || 'all'
 const getCreatedAt = item => formatDateTime(item.created_at || item.createdAt || '')
+const getStartedAt = item => formatDateTime(item.started_at || item.startedAt || item.created_at || item.createdAt || '')
+const getExpiresAt = item => item.expires_at || item.expiresAt || ''
+const getReleasedAt = item => formatDateTime(item.released_at || item.releasedAt || '')
+const getReleaseReason = item => item.release_reason || item.releaseReason || ''
+const getReleasedBy = item => item.released_by || item.releasedBy || ''
+
+const getVerifyUser = item => item.user || null
+const getVerifyUserEmail = item => getVerifyUser(item)?.email || '邮箱未返回'
+const getVerifyUserName = item => getVerifyUser(item)?.username || getVerifyUser(item)?.name || `用户 #${item.user_id || '-'}`
+const getVerifyStatus = item => item.status || 'pending'
+const getVerifyLevel = item => item.level || 'basic'
+const getVerifyReason = item => item.reject_reason || item.rejectReason || ''
+const getVerifyCreatedAt = item => formatDateTime(item.created_at || item.createdAt || '')
+const getFaceStatus = item => item.face_verify_status || item.faceVerifyStatus || 'not_required'
+
+const isExpired = item => {
+  const expiresAt = getExpiresAt(item)
+
+  if (!expiresAt) return false
+
+  return new Date(expiresAt).getTime() < Date.now()
+}
+
+const disabledPastDate = date => {
+  return date.getTime() < Date.now() - 86400000
+}
+
+const getDisplayStatus = item => {
+  if (getStatus(item) === 'inactive') return 'inactive'
+  if (isExpired(item)) return 'expired'
+
+  return 'active'
+}
 
 const limitText = type => {
   switch (type) {
@@ -55,48 +131,217 @@ const limitText = type => {
   }
 }
 
-const statusText = status => {
+const blacklistStatusText = status => {
   switch (status) {
     case 'inactive':
       return '已解除'
+    case 'expired':
+      return '已过期'
     default:
       return '限制中'
   }
 }
 
-const statusType = status => {
+const blacklistStatusType = status => {
   switch (status) {
     case 'inactive':
       return 'info'
+    case 'expired':
+      return 'warning'
     default:
       return 'danger'
   }
 }
 
-const load = async () => {
+const verifyStatusText = status => {
+  switch (status) {
+    case 'approved':
+      return '已通过'
+    case 'rejected':
+      return '已驳回'
+    default:
+      return '待审核'
+  }
+}
+
+const verifyStatusType = status => {
+  switch (status) {
+    case 'approved':
+      return 'success'
+    case 'rejected':
+      return 'danger'
+    default:
+      return 'warning'
+  }
+}
+
+const verifyLevelText = level => {
+  switch (level) {
+    case 'full':
+      return '完整认证'
+    default:
+      return '基础认证'
+  }
+}
+
+const faceStatusText = status => {
+  switch (status) {
+    case 'passed':
+      return '已通过'
+    case 'failed':
+      return '未通过'
+    case 'pending':
+      return '待核验'
+    default:
+      return '无需人脸核验'
+  }
+}
+
+const verifyCounts = computed(() => {
+  return {
+    total: verifications.value.length,
+    pending: verifications.value.filter(item => getVerifyStatus(item) === 'pending').length,
+    approved: verifications.value.filter(item => getVerifyStatus(item) === 'approved').length,
+    rejected: verifications.value.filter(item => getVerifyStatus(item) === 'rejected').length
+  }
+})
+
+const blacklistCounts = computed(() => {
+  return {
+    total: blacklists.value.length,
+    active: blacklists.value.filter(item => getDisplayStatus(item) === 'active').length,
+    expired: blacklists.value.filter(item => getDisplayStatus(item) === 'expired').length,
+    inactive: blacklists.value.filter(item => getDisplayStatus(item) === 'inactive').length
+  }
+})
+
+const filteredVerifications = computed(() => {
+  const keyword = verifyKeyword.value.trim().toLowerCase()
+
+  return verifications.value.filter(item => {
+    const matchStatus = verifyStatus.value === 'all' || getVerifyStatus(item) === verifyStatus.value
+    const matchLevel = verifyLevel.value === 'all' || getVerifyLevel(item) === verifyLevel.value
+
+    if (!matchStatus || !matchLevel) return false
+    if (!keyword) return true
+
+    return `${item.real_name || ''}${item.student_no || ''}${item.phone || ''}${getVerifyUserEmail(item)}`.toLowerCase().includes(keyword)
+  })
+})
+
+const verifyEmptyText = computed(() => {
+  if (verifyStatus.value === 'pending') return '当前没有待审核的实名认证申请'
+  if (verifyStatus.value === 'approved') return '当前没有已通过的实名认证申请'
+  if (verifyStatus.value === 'rejected') return '当前没有已驳回的实名认证申请'
+
+  return '当前没有实名认证申请'
+})
+
+const loadVerifications = async () => {
+  verifyLoading.value = true
+
+  try {
+    const res = await getAdminVerificationsApi({
+      status: verifyStatus.value === 'all' ? undefined : verifyStatus.value,
+      level: verifyLevel.value === 'all' ? undefined : verifyLevel.value,
+      keyword: verifyKeyword.value.trim() || undefined
+    })
+
+    verifications.value = normalizeList(res)
+  } finally {
+    verifyLoading.value = false
+  }
+}
+
+const loadBlacklists = async () => {
   loading.value = true
-  pageLoading.value = true
 
   try {
     const res = await getAdminBlacklistsApi()
     blacklists.value = normalizeList(res)
-  } catch {
-    ElMessage.error('加载黑名单数据失败')
   } finally {
     loading.value = false
-    pageLoading.value = false
   }
+}
+
+const load = async () => {
+  await Promise.all([
+    loadVerifications(),
+    loadBlacklists()
+  ])
+}
+
+const approveVerification = async item => {
+  await auditAdminVerificationApi(item.id, {
+    status: 'approved',
+    rejectReason: ''
+  })
+
+  ElMessage.success('实名认证已通过')
+  await loadVerifications()
+}
+
+const openRejectVerification = item => {
+  currentRejectVerification.value = item
+  rejectReason.value = ''
+  rejectDialog.value = true
+}
+
+const confirmRejectVerification = async () => {
+  if (!currentRejectVerification.value) return
+
+  if (!rejectReason.value.trim()) {
+    ElMessage.warning('请填写驳回原因')
+    return
+  }
+
+  await auditAdminVerificationApi(currentRejectVerification.value.id, {
+    status: 'rejected',
+    rejectReason: rejectReason.value.trim()
+  })
+
+  ElMessage.success('实名认证已驳回')
+  rejectDialog.value = false
+  currentRejectVerification.value = null
+  rejectReason.value = ''
+  await loadVerifications()
 }
 
 const resetForm = () => {
   form.userId = ''
   form.reason = ''
   form.limitType = 'all'
+  form.startedAt = ''
+  form.expiresAt = ''
+  form.isPermanent = true
+  userSearchOptions.value = []
+}
+
+const searchUsers = async query => {
+  if (!query || query.trim().length < 1) {
+    userSearchOptions.value = []
+    return
+  }
+
+  userSearchLoading.value = true
+
+  try {
+    const users = await fetchAdminUsers()
+    const keyword = query.trim().toLowerCase()
+    userSearchOptions.value = users.filter(u =>
+      (u.username && u.username.toLowerCase().includes(keyword)) ||
+      (u.email && u.email.toLowerCase().includes(keyword)) ||
+      String(u.id).includes(keyword)
+    ).slice(0, 20)
+  } finally {
+    userSearchLoading.value = false
+  }
 }
 
 const submitBlacklist = async () => {
   if (!form.userId) return ElMessage.warning('请填写用户 ID')
   if (!form.reason.trim()) return ElMessage.warning('请填写加入黑名单原因')
+  if (!form.isPermanent && !form.expiresAt) return ElMessage.warning('请选择限制到期时间')
 
   submitLoading.value = true
 
@@ -104,106 +349,496 @@ const submitBlacklist = async () => {
     await addAdminBlacklistApi({
       userId: form.userId,
       reason: form.reason,
-      limitType: form.limitType
+      limitType: form.limitType,
+      startedAt: form.startedAt,
+      expiresAt: form.isPermanent ? null : form.expiresAt
     })
 
     ElMessage.success('已加入黑名单')
     resetForm()
-    await load()
-  } catch {
-    ElMessage.error('操作失败，请重试')
+    await loadBlacklists()
   } finally {
     submitLoading.value = false
   }
 }
 
+const openReleaseBlacklist = item => {
+  currentReleaseBlacklist.value = item
+  releaseReason.value = ''
+  releaseDialog.value = true
+}
+
+const confirmReleaseBlacklist = async () => {
+  if (!currentReleaseBlacklist.value) return
+
+  if (!releaseReason.value.trim()) {
+    ElMessage.warning('请填写解除原因')
+    return
+  }
+
+  await releaseAdminBlacklistApi(currentReleaseBlacklist.value.id, {
+    releaseReason: releaseReason.value.trim()
+  })
+
+  ElMessage.success('黑名单限制已解除')
+  releaseDialog.value = false
+  currentReleaseBlacklist.value = null
+  releaseReason.value = ''
+  await loadBlacklists()
+}
+
+const deleteBlacklist = async item => {
+  await ElMessageBox.confirm(
+    `确认删除「${getUsername(item)}」的黑名单记录吗？该操作仅用于误添加、测试误加或重复添加。`,
+    '删除黑名单记录',
+    {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消'
+    }
+  )
+
+  await deleteAdminBlacklistApi(item.id)
+  ElMessage.success('黑名单记录已删除')
+  await loadBlacklists()
+}
+
+watch(
+  () => props.tab,
+  value => {
+    active.value = value || 'verify'
+  }
+)
+
+watch(
+  () => [verifyStatus.value, verifyLevel.value],
+  () => {
+    loadVerifications()
+  }
+)
+
 onMounted(load)
 </script>
 
 <template>
-  <AppLoading :visible="pageLoading" text="加载风险数据..." />
-
   <div class="risk-page fade-up">
     <el-tabs v-model="active" class="admin-tabs">
       <el-tab-pane label="实名认证审核" name="verify">
-        <section class="reserve-card glass-card">
-          <LineIcon name="user-check" tone="orange" />
+        <section class="verify-overview">
+          <button type="button" :class="{ active: verifyStatus === 'all' }" @click="verifyStatus = 'all'">
+            <b>{{ verifyCounts.total }}</b>
+            <span>全部申请</span>
+          </button>
 
-          <div>
-            <h2>实名认证审核暂作为第二优先级预留能力</h2>
+          <button type="button" :class="{ active: verifyStatus === 'pending' }" @click="verifyStatus = 'pending'">
+            <b>{{ verifyCounts.pending }}</b>
+            <span>待审核</span>
+          </button>
 
-            <p>当前阶段优先保证失物发布、认领审核、交接处理、通知与黑名单等主流程联调。实名认证审核列表暂不纳入当前联调范围，后续进入第二优先级阶段后再补齐。</p>
+          <button type="button" :class="{ active: verifyStatus === 'approved' }" @click="verifyStatus = 'approved'">
+            <b>{{ verifyCounts.approved }}</b>
+            <span>已通过</span>
+          </button>
 
-            <div class="reserve-flow">
-              <div>
-                <b>当前已保留的能力</b>
-                <span>用户可提交基础认证或完整认证申请</span>
-                <span>用户可查看自己的认证状态</span>
-                <span>管理员审核动作可在后续列表补齐后接入</span>
+          <button type="button" :class="{ active: verifyStatus === 'rejected' }" @click="verifyStatus = 'rejected'">
+            <b>{{ verifyCounts.rejected }}</b>
+            <span>已驳回</span>
+          </button>
+        </section>
+
+        <div class="verify-toolbar">
+          <div class="filter-pills">
+            <button type="button" :class="{ active: verifyStatus === 'all' }" @click="verifyStatus = 'all'">全部</button>
+            <button type="button" :class="{ active: verifyStatus === 'pending' }" @click="verifyStatus = 'pending'">待审核</button>
+            <button type="button" :class="{ active: verifyStatus === 'approved' }" @click="verifyStatus = 'approved'">已通过</button>
+            <button type="button" :class="{ active: verifyStatus === 'rejected' }" @click="verifyStatus = 'rejected'">已驳回</button>
+          </div>
+
+          <el-select v-model="verifyLevel" placeholder="认证等级" style="width: 140px">
+            <el-option label="全部等级" value="all" />
+            <el-option label="基础认证" value="basic" />
+            <el-option label="完整认证" value="full" />
+          </el-select>
+
+          <el-input v-model="verifyKeyword" placeholder="搜索姓名 / 学号 / 手机号 / 邮箱" clearable @keyup.enter="loadVerifications" />
+
+          <el-button :loading="verifyLoading" @click="loadVerifications">搜索 / 刷新</el-button>
+        </div>
+
+        <section v-if="verifyLoading" class="loading-list">
+          <el-skeleton v-for="item in 3" :key="item" animated>
+            <template #template>
+              <div class="skeleton-row">
+                <el-skeleton-item variant="h3" style="width: 36%" />
+                <el-skeleton-item variant="text" style="width: 82%" />
+                <el-skeleton-item variant="text" style="width: 52%" />
+              </div>
+            </template>
+          </el-skeleton>
+        </section>
+
+        <section v-else class="verify-list">
+          <EmptyState v-if="!filteredVerifications.length" title="暂无实名认证申请" :desc="verifyEmptyText" />
+
+          <div v-for="item in filteredVerifications" :key="item.id" class="verify-row glass-card">
+            <LineIcon name="user-check" :tone="getVerifyStatus(item) === 'approved' ? 'green' : getVerifyStatus(item) === 'rejected' ? 'red' : 'orange'" />
+
+            <div class="verify-main">
+              <div class="title">
+                <b>{{ item.real_name || '未填写姓名' }}</b>
+                <el-tag>{{ verifyLevelText(getVerifyLevel(item)) }}</el-tag>
+                <el-tag :type="verifyStatusType(getVerifyStatus(item))">{{ verifyStatusText(getVerifyStatus(item)) }}</el-tag>
+                <el-tag>{{ faceStatusText(getFaceStatus(item)) }}</el-tag>
               </div>
 
-              <div>
-                <b>当前暂不联调</b>
-                <span>管理员认证申请列表</span>
-                <span>认证材料集中查看</span>
-                <span>批量筛选认证状态</span>
+              <p>
+                学号 / 工号：{{ item.student_no || '未填写' }}
+                · 手机号：{{ item.phone || '未填写' }}
+                · 证件后四位：{{ item.id_card_last4 || '未填写' }}
+              </p>
+
+              <small>
+                提交用户：{{ getVerifyUserName(item) }}
+                · 邮箱：{{ getVerifyUserEmail(item) }}
+                · 提交时间：{{ getVerifyCreatedAt(item) }}
+              </small>
+
+              <div class="identity-note">
+                审核时请核对姓名、学号、手机号与校园身份信息。完整认证可作为贵重物品认领和邮寄处理的重要辅助依据。
               </div>
+
+              <div v-if="getVerifyReason(item)" class="reason-line">
+                驳回原因：{{ getVerifyReason(item) }}
+              </div>
+            </div>
+
+            <div class="actions">
+              <el-button
+                class="solid-action success-action"
+                :disabled="getVerifyStatus(item) === 'approved'"
+                @click="approveVerification(item)"
+              >
+                通过
+              </el-button>
+
+              <el-button
+                class="soft-action danger-action"
+                :disabled="getVerifyStatus(item) === 'rejected'"
+                @click="openRejectVerification(item)"
+              >
+                驳回
+              </el-button>
             </div>
           </div>
         </section>
       </el-tab-pane>
 
       <el-tab-pane label="黑名单管理" name="blacklist">
-        <section class="blacklist-layout">
-          <div class="blacklist-form glass-card">
-            <h2>添加黑名单</h2>
+  <section class="blacklist-overview">
+    <div class="overview-card">
+      <b>{{ blacklistCounts.total }}</b>
+      <span>全部记录</span>
+    </div>
 
-            <p>用于限制恶意发布、频繁认领失败、虚假信息等异常用户。当前版本按用户 ID 添加，避免额外引入用户管理接口。</p>
+    <div class="overview-card danger">
+      <b>{{ blacklistCounts.active }}</b>
+      <span>限制中</span>
+    </div>
 
-            <el-form :model="form" label-position="top">
-              <el-form-item label="用户 ID">
-                <el-input v-model.trim="form.userId" placeholder="请输入需要限制的用户 ID" />
-              </el-form-item>
+    <div class="overview-card warning">
+      <b>{{ blacklistCounts.expired }}</b>
+      <span>已过期</span>
+    </div>
 
-              <el-form-item label="限制类型">
-                <el-radio-group v-model="form.limitType">
-                  <el-radio-button label="publish">限制发布</el-radio-button>
-                  <el-radio-button label="claim">限制认领</el-radio-button>
-                  <el-radio-button label="all">限制全部</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
+    <div class="overview-card muted">
+      <b>{{ blacklistCounts.inactive }}</b>
+      <span>已解除</span>
+    </div>
+  </section>
 
-              <el-form-item label="限制原因">
-                <el-input v-model.trim="form.reason" type="textarea" :rows="4" placeholder="例如：多次认领失败、疑似冒领、发布虚假信息等" />
-              </el-form-item>
+  <!-- 二级 tab：黑名单管理 -->
+  <el-tabs
+    v-model="blacklistTab"
+    class="blacklist-inner-tabs"
+  >
+    <!-- 添加黑名单 -->
+    <el-tab-pane
+      label="添加黑名单"
+      name="create"
+    >
+      <div class="blacklist-form glass-card">
+        <h2>添加黑名单</h2>
 
-              <el-button type="danger" :loading="submitLoading" @click="submitBlacklist">加入黑名单</el-button>
-            </el-form>
+        <p>
+          用于限制恶意发布、频繁认领失败、虚假信息等异常用户。
+          正常恢复权限请使用“解除限制”，误添加记录才使用“删除记录”。
+        </p>
+
+        <el-form
+          :model="form"
+          label-position="top"
+        >
+          <el-form-item label="选择用户">
+            <el-select
+              v-model="form.userId"
+              filterable
+              remote
+              placeholder="输入用户名、学号或邮箱搜索"
+              :remote-method="searchUsers"
+              :loading="userSearchLoading"
+              style="width: 100%"
+              popper-class="user-search-dropdown"
+            >
+              <el-option
+                v-for="u in userSearchOptions"
+                :key="u.id"
+                :label="u.username"
+                :value="u.id"
+              >
+                <div class="user-search-option">
+                  <el-avatar
+                    :src="u.avatar"
+                    :size="28"
+                    style="
+                      background: linear-gradient(135deg, #4f7cff, #00b894);
+                      color: #fff;
+                      font-size: 12px;
+                      font-weight: 700;
+                      flex-shrink: 0;
+                    "
+                  >
+                    {{ u.username ? u.username.charAt(0) : 'U' }}
+                  </el-avatar>
+
+                  <div class="user-search-info">
+                    <div class="user-search-name">
+                      {{ u.username }}
+                    </div>
+
+                    <div class="user-search-meta">
+                      ID: {{ u.id }} · {{ u.email }}
+                    </div>
+                  </div>
+                </div>
+              </el-option>
+            </el-select>
+          </el-form-item>
+
+          <!-- 限制类型（改成真正 tab 风格） -->
+          <el-form-item label="限制类型">
+            <div class="limit-type-tabs">
+              <button
+                type="button"
+                :class="{ active: form.limitType === 'publish' }"
+                @click="form.limitType = 'publish'"
+              >
+                限制发布
+              </button>
+
+              <button
+                type="button"
+                :class="{ active: form.limitType === 'claim' }"
+                @click="form.limitType = 'claim'"
+              >
+                限制认领
+              </button>
+
+              <button
+                type="button"
+                :class="{ active: form.limitType === 'all' }"
+                @click="form.limitType = 'all'"
+              >
+                限制全部
+              </button>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="风控时间">
+            <div class="risk-time-box">
+              <el-date-picker
+                v-model="form.startedAt"
+                type="datetime"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                placeholder="限制开始时间，默认当前"
+                style="width: 100%"
+                :disabled-date="disabledPastDate"
+              />
+
+              <el-checkbox v-model="form.isPermanent">
+                长期限制
+              </el-checkbox>
+
+              <el-date-picker
+                v-if="!form.isPermanent"
+                v-model="form.expiresAt"
+                type="datetime"
+                value-format="YYYY-MM-DD HH:mm:ss"
+                placeholder="请选择限制到期时间"
+                style="width: 100%"
+                :disabled-date="disabledPastDate"
+              />
+            </div>
+          </el-form-item>
+
+          <el-form-item label="限制原因">
+            <el-input
+              v-model.trim="form.reason"
+              type="textarea"
+              :rows="4"
+              placeholder="例如：多次认领失败、疑似冒领、发布虚假信息等"
+            />
+          </el-form-item>
+
+          <el-button
+            class="solid-action danger-solid-action"
+            :loading="submitLoading"
+            @click="submitBlacklist"
+          >
+            加入黑名单
+          </el-button>
+        </el-form>
+      </div>
+    </el-tab-pane>
+
+    <!-- 风控用户管理 -->
+    <el-tab-pane
+      label="风控用户管理"
+      name="manage"
+    >
+      <section class="risk-list">
+        <EmptyState
+          v-if="!loading && !blacklists.length"
+          title="暂无黑名单记录"
+          desc="添加黑名单后，会在这里集中展示限制记录。"
+        />
+
+        <div
+          v-for="item in blacklists"
+          :key="item.id"
+          class="risk-row glass-card"
+        >
+          <LineIcon
+            name="users"
+            :tone="
+              getDisplayStatus(item) === 'active'
+                ? 'red'
+                : getDisplayStatus(item) === 'expired'
+                ? 'orange'
+                : 'blue'
+            "
+          />
+
+          <div class="risk-main">
+            <div class="title">
+              <b>{{ getUsername(item) }}</b>
+
+              <el-tag>
+                {{ getEmail(item) }}
+              </el-tag>
+
+              <el-tag
+                :type="blacklistStatusType(getDisplayStatus(item))"
+              >
+                {{ blacklistStatusText(getDisplayStatus(item)) }}
+              </el-tag>
+
+              <el-tag type="warning">
+                {{ limitText(getLimitType(item)) }}
+              </el-tag>
+            </div>
+
+            <p>
+              用户 #{{ getUserId(item) }}
+              · 创建时间：{{ getCreatedAt(item) || '时间未返回' }}
+            </p>
+
+            <div class="risk-time-line">
+              <span>
+                开始：{{ getStartedAt(item) || '默认当前时间' }}
+              </span>
+
+              <span>
+                到期：
+                {{
+                  getExpiresAt(item)
+                    ? formatDateTime(getExpiresAt(item))
+                    : '长期限制'
+                }}
+              </span>
+            </div>
+
+            <small>
+              限制原因：{{ getReason(item) }}
+            </small>
+
+            <div
+              v-if="getDisplayStatus(item) === 'inactive'"
+              class="release-line"
+            >
+              <span>
+                解除时间：{{ getReleasedAt(item) || '时间未返回' }}
+              </span>
+
+              <span v-if="getReleasedBy(item)">
+                解除人：#{{ getReleasedBy(item) }}
+              </span>
+
+              <span v-if="getReleaseReason(item)">
+                解除原因：{{ getReleaseReason(item) }}
+              </span>
+            </div>
           </div>
 
-          <section class="risk-list">
-            <EmptyState v-if="!loading && !blacklists.length" title="暂无黑名单记录" desc="添加黑名单后，会在这里集中展示限制记录。" />
+          <div class="actions">
+            <el-button
+              v-if="getDisplayStatus(item) === 'active'"
+              class="soft-action primary-action"
+              @click="openReleaseBlacklist(item)"
+            >
+              解除限制
+            </el-button>
 
-            <div v-for="item in blacklists" :key="item.id" class="risk-row glass-card">
-              <LineIcon name="users" :tone="getStatus(item) === 'inactive' ? 'blue' : 'red'" />
-
-              <div>
-                <div class="title">
-                  <b>{{ getUsername(item) }}</b>
-                  <el-tag>{{ getEmail(item) }}</el-tag>
-                  <el-tag :type="statusType(getStatus(item))">{{ statusText(getStatus(item)) }}</el-tag>
-                  <el-tag type="warning">{{ limitText(getLimitType(item)) }}</el-tag>
-                </div>
-
-                <p>用户 #{{ getUserId(item) }} · {{ getCreatedAt(item) }}</p>
-
-                <small>{{ getReason(item) }}</small>
-              </div>
-            </div>
-          </section>
-        </section>
-      </el-tab-pane>
+            <el-button
+              class="soft-action danger-action"
+              @click="deleteBlacklist(item)"
+            >
+              删除记录
+            </el-button>
+          </div>
+        </div>
+      </section>
+    </el-tab-pane>
+  </el-tabs>
+</el-tab-pane>
     </el-tabs>
+
+    <el-dialog v-model="rejectDialog" title="填写实名认证驳回原因" width="480px">
+      <el-input
+        v-model="rejectReason"
+        type="textarea"
+        :rows="4"
+        placeholder="例如：姓名与学号不一致、手机号无法确认、认证信息不完整等"
+      />
+
+      <template #footer>
+        <el-button @click="rejectDialog = false">取消</el-button>
+        <el-button type="danger" @click="confirmRejectVerification">确认驳回</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="releaseDialog" title="填写解除限制原因" width="480px">
+      <el-input
+        v-model="releaseReason"
+        type="textarea"
+        :rows="4"
+        placeholder="例如：经核查用户已完成说明，解除限制"
+      />
+
+      <template #footer>
+        <el-button @click="releaseDialog = false">取消</el-button>
+        <el-button type="primary" @click="confirmReleaseBlacklist">确认解除</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -215,52 +850,242 @@ onMounted(load)
   box-shadow: var(--shadow);
 }
 
-.reserve-card {
+.verify-overview,
+.blacklist-overview {
   display: grid;
-  grid-template-columns: 56px 1fr;
-  gap: 16px;
-  padding: 24px;
-  background: #fff;
-}
-
-.reserve-card h2 {
-  margin: 0 0 10px;
-}
-
-.reserve-card p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.8;
-}
-
-.reserve-flow {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 14px;
-  margin-top: 18px;
+  margin-bottom: 16px;
+  padding: 6px;
 }
 
-.reserve-flow div {
-  padding: 16px;
-  border-radius: 18px;
-  background: #f8fafc;
+.verify-overview button,
+.overview-card {
+  padding: 16px 18px;
+  border: 1px solid rgba(79, 124, 255, .08);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(79, 124, 255, .09), rgba(0, 184, 148, .05));
+  text-align: left;
+  transition: .22s ease;
 }
 
-.reserve-flow b {
+.verify-overview button {
+  cursor: pointer;
+}
+
+.verify-overview button:hover,
+.verify-overview button.active {
+  transform: translateY(-2px);
+  border-color: rgba(79, 124, 255, .36);
+  box-shadow: 0 14px 32px rgba(31, 45, 92, .10);
+}
+
+.overview-card.danger {
+  background: linear-gradient(135deg, rgba(244, 63, 94, .10), rgba(255, 255, 255, .72));
+}
+
+.overview-card.warning {
+  background: linear-gradient(135deg, rgba(255, 159, 67, .13), rgba(255, 255, 255, .72));
+}
+
+.overview-card.muted {
+  background: linear-gradient(135deg, rgba(148, 163, 184, .13), rgba(255, 255, 255, .72));
+}
+
+.verify-overview b,
+.overview-card b {
   display: block;
-  margin-bottom: 8px;
+  font-size: 25px;
 }
 
-.reserve-flow span {
-  display: block;
-  margin-top: 5px;
+.verify-overview span,
+.overview-card span {
   color: var(--muted);
+  font-weight: 800;
+}
+
+.verify-toolbar {
+  margin-bottom: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px minmax(260px, 360px) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.filter-pills button {
+  min-width: 76px;
+  padding: 9px 16px;
+  border: 1px solid rgba(79, 124, 255, .14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .78);
+  color: #64748b;
+  font-weight: 900;
+  cursor: pointer;
+  transition: .22s ease;
+}
+
+.filter-pills button:hover {
+  color: var(--primary-strong);
+  border-color: rgba(79, 124, 255, .34);
+  background: rgba(79, 124, 255, .06);
+}
+
+.filter-pills button.active {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  box-shadow: 0 12px 26px rgba(79, 124, 255, .20);
+}
+
+.verify-list,
+.loading-list {
+  display: grid;
+  gap: 14px;
+}
+
+.verify-row {
+  padding: 18px;
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  background: rgba(255, 255, 255, .92);
+}
+
+.verify-main,
+.risk-main {
+  min-width: 0;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.title b {
+  font-size: 18px;
+}
+
+.verify-main p,
+.risk-row p {
+  margin: 8px 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.verify-main small,
+.risk-row small {
+  color: #8b95a7;
+}
+
+.identity-note,
+.reason-line {
+  margin-top: 9px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  line-height: 1.65;
   font-size: 13px;
+}
+
+.identity-note {
+  background: rgba(255, 159, 67, .10);
+  color: #92400e;
+}
+
+.reason-line {
+  background: rgba(244, 63, 94, .08);
+  color: #be123c;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.actions :deep(.el-button),
+.blacklist-form :deep(.el-button) {
+  min-height: 38px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-weight: 900;
+  border: none;
+}
+
+.solid-action {
+  color: #fff !important;
+  box-shadow: 0 12px 28px rgba(31, 45, 92, .14);
+}
+
+.soft-action {
+  border: 1px solid transparent !important;
+  background: rgba(255, 255, 255, .82) !important;
+  box-shadow: 0 10px 24px rgba(31, 45, 92, .08);
+}
+
+.primary-action {
+  color: #315fff !important;
+  border-color: rgba(79, 124, 255, .22) !important;
+  background: linear-gradient(135deg, rgba(79, 124, 255, .13), rgba(255, 255, 255, .88)) !important;
+}
+
+.success-action {
+  color: #047857 !important;
+  border-color: rgba(0, 184, 148, .24) !important;
+  background: linear-gradient(135deg, rgba(0, 184, 148, .16), rgba(255, 255, 255, .88)) !important;
+}
+
+.danger-action {
+  color: #dc2626 !important;
+  border-color: rgba(244, 63, 94, .24) !important;
+  background: linear-gradient(135deg, rgba(244, 63, 94, .14), rgba(255, 255, 255, .90)) !important;
+}
+
+.solid-action.success-action {
+  color: #fff !important;
+  background: linear-gradient(135deg, #16a34a, #00b894) !important;
+}
+
+.danger-solid-action {
+  color: #fff !important;
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+}
+
+.soft-action:hover,
+.solid-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(31, 45, 92, .14);
+}
+
+.soft-action:disabled,
+.solid-action:disabled {
+  color: #94a3b8 !important;
+  background: rgba(241, 245, 249, .9) !important;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.skeleton-row {
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, .78);
+  box-shadow: 0 14px 34px rgba(31, 45, 92, .08);
 }
 
 .blacklist-layout {
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 380px 1fr;
   gap: 18px;
 }
 
@@ -280,6 +1105,11 @@ onMounted(load)
   line-height: 1.75;
 }
 
+.risk-time-box {
+  display: grid;
+  gap: 12px;
+}
+
 .risk-list {
   display: grid;
   gap: 14px;
@@ -287,39 +1117,106 @@ onMounted(load)
 
 .risk-row {
   display: grid;
-  grid-template-columns: 52px 1fr;
+  grid-template-columns: 52px 1fr auto;
   gap: 16px;
   align-items: center;
   padding: 18px;
   background: #fff;
 }
 
-.title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.risk-row p {
+.risk-time-line {
   margin: 8px 0;
-  color: var(--muted);
-  line-height: 1.7;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.risk-row small {
-  color: #8b95a7;
+.risk-time-line span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(79, 124, 255, .07);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.release-line {
+  margin-top: 10px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  border-radius: 14px;
+  background: rgba(0, 184, 148, .08);
+  color: #047857;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+:deep(.el-dialog__footer .el-button) {
+  min-width: 92px;
+  height: 38px;
+  border-radius: 999px;
+  font-weight: 900;
+}
+
+:deep(.el-dialog__footer .el-button--primary) {
+  border: none;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  box-shadow: 0 10px 24px rgba(79, 124, 255, .18);
+}
+
+@media (max-width: 1080px) {
+  .verify-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .blacklist-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 920px) {
-  .blacklist-layout,
-  .reserve-flow {
+  .blacklist-overview,
+  .verify-overview {
     grid-template-columns: 1fr;
   }
 
   .risk-row,
-  .reserve-card {
+  .verify-row {
     grid-template-columns: 1fr;
   }
+
+  .actions {
+    justify-content: flex-start;
+  }
+}
+
+/* 用户搜索下拉选项 */
+:deep(.user-search-dropdown) {
+  min-width: 280px !important;
+}
+
+.user-search-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+}
+
+.user-search-info {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.user-search-name {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.user-search-meta {
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.4;
 }
 </style>

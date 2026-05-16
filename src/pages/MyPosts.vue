@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMyItemsApi, updateItemStatusApi, deleteItemApi } from '@/api/item'
-import { getMyClaimsApi } from '@/api/claim'
+import { getMyClaimsApi, createClaimApi } from '@/api/claim'
 import { formatDateTime } from '@/utils/format'
 import StatCard from '@/components/StatCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -16,8 +16,16 @@ const claims = ref([])
 const loading = ref(false)
 const activeTab = ref(route.query.tab === 'claims' ? 'claims' : 'posts')
 
+const wrongReturnDialog = ref(false)
+const wrongReturnForm = ref({
+  claimId: '',
+  itemId: '',
+  reason: ''
+})
+const wrongReturnLoading = ref(false)
+
 const doneCount = computed(() => {
-  const completedItems = items.value.filter(item => ['done', 'completed'].includes(item.status)).length
+  const completedItems = items.value.filter(item => ['done', 'completed', 'closed'].includes(item.status)).length
   const completedClaims = claims.value.filter(claim => claim.status === 'completed').length
 
   return completedItems + completedClaims
@@ -64,16 +72,14 @@ const auditType = status => {
 }
 
 const itemStatusText = status => {
-  if (['done', 'completed'].includes(status)) return '已完成'
+  if (['done', 'completed', 'closed'].includes(status)) return '已完成'
   if (status === 'claiming') return '认领中'
-  if (status === 'closed') return '已关闭'
 
   return '进行中'
 }
 
 const itemStatusType = status => {
-  if (['done', 'completed'].includes(status)) return 'success'
-  if (status === 'closed') return 'info'
+  if (['done', 'completed', 'closed'].includes(status)) return 'success'
 
   return 'warning'
 }
@@ -112,6 +118,49 @@ const shouldShowRejectReason = claim => {
   return claim.status === 'rejected' && getClaimAuditReason(claim)
 }
 
+const canWrongReturn = claim => {
+  return getClaimType(claim) === 'claim' && claim.status === 'completed'
+}
+
+const openWrongReturn = claim => {
+  if (!canWrongReturn(claim)) {
+    ElMessage.warning('只有已完成的认领申请才能发起领错归还')
+    return
+  }
+  wrongReturnForm.value = {
+    claimId: claim.id,
+    itemId: getClaimItem(claim)?.id || '',
+    reason: ''
+  }
+  wrongReturnDialog.value = true
+}
+
+const submitWrongReturn = async () => {
+  if (!wrongReturnForm.value.reason.trim()) {
+    ElMessage.warning('请填写归还原因')
+    return
+  }
+
+  wrongReturnLoading.value = true
+  try {
+    await createClaimApi({
+      itemId: wrongReturnForm.value.itemId,
+      claimType: 'wrong_return',
+      proofText: wrongReturnForm.value.reason,
+      pickupMethod: 'offline',
+      phone: ''
+    })
+    ElMessage.success('领错归还申请已提交，等待管理员审核')
+    wrongReturnDialog.value = false
+    await load()
+  } catch (error) {
+    console.error('提交领错归还失败:', error)
+    ElMessage.error('提交失败，请稍后重试')
+  } finally {
+    wrongReturnLoading.value = false
+  }
+}
+
 const load = async () => {
   loading.value = true
 
@@ -128,27 +177,52 @@ const load = async () => {
   }
 }
 
+const canMarkDone = item => {
+  const auditStatus = getAuditStatus(item)
+  const itemStatus = getItemStatus(item)
+
+  return auditStatus === 'approved' && !['done', 'completed', 'closed'].includes(itemStatus)
+}
+
+const canClose = item => {
+  const itemStatus = getItemStatus(item)
+
+  return !['done', 'completed', 'closed'].includes(itemStatus)
+}
+
 const markDone = async item => {
-  await ElMessageBox.confirm(
-    `确认将「${item.name || '该信息'}」标记为已完成吗？`,
-    '标记完成确认',
-    {
-      type: 'warning',
-      confirmButtonText: '确认完成',
-      cancelButtonText: '取消'
+  if (!canMarkDone(item)) {
+    ElMessage.warning('该信息暂不满足标记完成的条件')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确认将「${item.name || '该信息'}」标记为已完成吗？`,
+      '标记完成确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确认完成',
+        cancelButtonText: '取消'
+      }
+    )
+
+    await updateItemStatusApi(item.id, {
+      status: 'closed'
+    })
+
+    ElMessage.success('状态已更新为已完成')
+    await load()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('标记完成失败:', error)
+      ElMessage.error('标记失败，请稍后重试')
     }
-  )
-
-  await updateItemStatusApi(item.id, {
-    status: 'completed'
-  })
-
-  ElMessage.success('状态已更新')
-  await load()
+  }
 }
 
 const remove = async item => {
-  const forbiddenStatuses = ['completed', 'done', 'claimed']
+  const forbiddenStatuses = ['completed', 'done', 'claimed', 'closed']
   const status = item.status
 
   if (forbiddenStatuses.includes(status)) {
@@ -256,7 +330,7 @@ watch(() => route.query.tab, value => {
               </el-button>
               <el-button
                 type="success"
-                :disabled="['done', 'completed'].includes(getItemStatus(item))"
+                :disabled="!canMarkDone(item)"
                 @click="markDone(item)"
               >
                 标记完成
@@ -330,11 +404,42 @@ watch(() => route.query.tab, value => {
               >
                 查看关联物品
               </el-button>
+              <el-button
+                v-if="canWrongReturn(claim)"
+                size="small"
+                type="warning"
+                plain
+                @click="openWrongReturn(claim)"
+              >
+                领错归还
+              </el-button>
             </div>
           </div>
         </section>
       </el-tab-pane>
     </el-tabs>
+
+    <el-dialog v-model="wrongReturnDialog" title="领错归还申请" width="480px">
+      <p style="margin-bottom: 16px; color: var(--muted);">
+        如果你发现认领的物品并非自己的，可以发起领错归还。管理员审核后会安排重新入库。
+      </p>
+      <el-form :model="wrongReturnForm" label-position="top">
+        <el-form-item label="归还原因">
+          <el-input
+            v-model="wrongReturnForm.reason"
+            type="textarea"
+            :rows="4"
+            placeholder="请详细说明领错的原因，例如：物品相似但细节不符、误认等"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="wrongReturnDialog = false">取消</el-button>
+        <el-button type="warning" :loading="wrongReturnLoading" @click="submitWrongReturn">
+          提交归还申请
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -351,7 +456,7 @@ watch(() => route.query.tab, value => {
 }
 
 .section-title h2 {
-  font-size: clamp(30px, 4vw, 46px);
+  font-size: clamp(32px, 4vw, 48px);
   letter-spacing: -.05em;
 }
 

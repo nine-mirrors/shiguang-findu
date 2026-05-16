@@ -94,7 +94,7 @@ const getDeliveryAddress = claim => claim.deliveryAddress || claim.delivery_addr
 const getStorageItem = row => row.item || row.lost_found_item || row.lostFoundItem || null
 const getStorageCode = row => row.storageCode || row.storage_code || '未入库'
 const getStorageLocation = row => row.storageLocation || row.storage_location || '未填写保管地点'
-const getExpireAt = row => row.expireAt || row.expire_at || '时间待补充'
+const getExpireAt = row => formatDateTime(row.expireAt || row.expire_at || '')
 const getDisposalStatus = row => row.disposalStatus || row.disposal_status || 'normal'
 
 const getAnnouncementCreatedAt = item => formatDateTime(item.createdAt || item.created_at || '')
@@ -134,7 +134,7 @@ const loadCategories = async () => {
     categories.value = list.map(item => {
       if (typeof item === 'string') return { id: item, name: item, sort: 0 }
       return { id: item.id, name: item.name, sort: item.sort ?? 0 }
-    })
+    }).sort((a, b) => a.sort - b.sort)
   } catch {
     categories.value = []
   }
@@ -254,6 +254,17 @@ const confirmTransfer = async () => {
 const submitNotice = async () => {
   if (!notice.title.trim() || !notice.content.trim()) return ElMessage.warning('请填写公告标题和内容')
 
+  const title = notice.title.trim()
+  const content = notice.content.trim()
+
+  const isDuplicate = announcements.value.some(a =>
+    a.title?.trim() === title && a.content?.trim() === content
+  )
+
+  if (isDuplicate) {
+    return ElMessage.warning('已存在相同标题和内容的公告，请勿重复发布')
+  }
+
   await createAnnouncementApi({
     title: notice.title,
     content: notice.content,
@@ -348,9 +359,9 @@ onMounted(() => {
             </div>
 
             <div class="actions">
-              <el-button type="success" @click="finishHandover(claim, 'offline')">完成线下交接</el-button>
-              <el-button type="primary" plain @click="finishHandover(claim, 'delivery')">登记邮寄交接</el-button>
-            </div>
+  <el-button class="solid-action success-action" type="success" @click="finishHandover(claim, 'offline')">完成线下交接</el-button>
+  <el-button class="soft-action primary-action" @click="finishHandover(claim, 'delivery')">登记邮寄交接</el-button>
+</div>
           </div>
         </section>
       </el-tab-pane>
@@ -374,7 +385,7 @@ onMounted(() => {
             </div>
 
             <div class="actions">
-              <el-button :disabled="getDisposalStatus(row) === 'transferred'" type="primary" plain @click="openTransfer(row)">登记移交</el-button>
+              <el-button class="soft-action primary-action" :disabled="getDisposalStatus(row) === 'transferred'" @click="openTransfer(row)">登记移交</el-button>
             </div>
           </div>
         </section>
@@ -440,7 +451,7 @@ onMounted(() => {
             </div>
 
             <div class="actions">
-              <el-button :disabled="item.status === 'resolved'" type="success" plain @click="openResolve(item)">填写结论</el-button>
+              <el-button class="soft-action success-action" :disabled="item.status === 'resolved'" @click="openResolve(item)">填写结论</el-button>
             </div>
           </div>
         </section>
@@ -449,8 +460,8 @@ onMounted(() => {
       <el-tab-pane label="分类管理" name="categories">
         <section class="ops-list">
           <div class="category-toolbar">
-            <el-button type="primary" @click="openCategoryDialog()">新增分类</el-button>
-          </div>
+  <el-button class="solid-action primary-action" @click="openCategoryDialog()">新增分类</el-button>
+</div>
 
           <EmptyState v-if="!categories.length" title="暂无分类" desc="添加物品分类后，用户发布时可选择对应分类。" />
 
@@ -465,9 +476,9 @@ onMounted(() => {
             </div>
 
             <div class="actions">
-              <el-button type="primary" plain @click="openCategoryDialog(item)">编辑</el-button>
-              <el-button type="danger" plain @click="removeCategory(item)">删除</el-button>
-            </div>
+  <el-button class="soft-action primary-action" @click="openCategoryDialog(item)">编辑</el-button>
+  <el-button class="soft-action danger-action" @click="removeCategory(item)">删除</el-button>
+</div>
           </div>
         </section>
       </el-tab-pane>
@@ -619,6 +630,73 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
+.category-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.actions :deep(.el-button),
+.category-toolbar :deep(.el-button) {
+  min-height: 38px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-weight: 900;
+  border: none;
+}
+
+.solid-action {
+  color: #fff !important;
+  box-shadow: 0 12px 28px rgba(31, 45, 92, .14);
+}
+
+.soft-action {
+  border: 1px solid transparent !important;
+  background: rgba(255, 255, 255, .82) !important;
+  box-shadow: 0 10px 24px rgba(31, 45, 92, .08);
+}
+
+.primary-action {
+  color: #315fff !important;
+  border-color: rgba(79, 124, 255, .22) !important;
+  background: linear-gradient(135deg, rgba(79, 124, 255, .13), rgba(255, 255, 255, .88)) !important;
+}
+
+.success-action {
+  color: #047857 !important;
+  border-color: rgba(0, 184, 148, .24) !important;
+  background: linear-gradient(135deg, rgba(0, 184, 148, .16), rgba(255, 255, 255, .88)) !important;
+}
+
+.danger-action {
+  color: #dc2626 !important;
+  border-color: rgba(244, 63, 94, .24) !important;
+  background: linear-gradient(135deg, rgba(244, 63, 94, .14), rgba(255, 255, 255, .90)) !important;
+}
+
+.solid-action.primary-action {
+  color: #fff !important;
+  background: linear-gradient(135deg, var(--primary), var(--secondary)) !important;
+}
+
+.solid-action.success-action {
+  color: #fff !important;
+  background: linear-gradient(135deg, #16a34a, #00b894) !important;
+}
+
+.soft-action:hover,
+.solid-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(31, 45, 92, .14);
+}
+
+.soft-action:disabled,
+.solid-action:disabled {
+  color: #94a3b8 !important;
+  background: rgba(241, 245, 249, .9) !important;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
 .announce-box {
   padding: 24px;
 }
@@ -659,6 +737,25 @@ onMounted(() => {
   background: rgba(255, 159, 67, .10);
   color: #92400e;
   font-size: 13px;
+}
+
+:deep(.el-dialog__footer .el-button) {
+  min-width: 92px;
+  height: 38px;
+  border-radius: 999px;
+  font-weight: 900;
+}
+
+:deep(.el-dialog__footer .el-button--primary) {
+  border: none;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  box-shadow: 0 10px 24px rgba(79, 124, 255, .18);
+}
+
+:deep(.el-dialog__footer .el-button--success) {
+  border: none;
+  background: linear-gradient(135deg, #16a34a, #00b894);
+  box-shadow: 0 10px 24px rgba(0, 184, 148, .18);
 }
 
 @media (max-width: 920px) {

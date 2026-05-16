@@ -91,7 +91,7 @@ request.interceptors.request.use(
   config => {
     const token = storage.get('token', '')
 
-    if (token && !isPublicApi(config)) {
+    if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
 

@@ -31,15 +31,15 @@ export const getAdminItemsApi = params => {
  */
 export const auditAdminItemApi = (id, data) => {
   return request.put(`/api/admin/lost-found/items/${id}/audit`, {
-    action: data.auditStatus === 'approved' ? 'approve' : 'reject',
-    audit_reason: data.rejectReason || (data.auditStatus === 'approved' ? '审核通过' : '')
+    audit_status: data.auditStatus,
+    reject_reason: data.rejectReason || ''
   })
 }
 
 /**
  * 第一优先级：管理员删除发布信息
  * 文档接口：DELETE /api/admin/lost-found/items/{id}
- * 用途：管理员删除违规或重复的失物 / 招领信息。
+ * 用途：管理员删除违规、重复或错误的失物 / 招领信息。
  */
 export const deleteAdminItemApi = id => {
   return request.delete(`/api/admin/lost-found/items/${id}`)
@@ -48,11 +48,7 @@ export const deleteAdminItemApi = id => {
 /**
  * 第一优先级：管理员获取认领申请列表
  * 文档接口：GET /api/admin/claims
- * 用途：认领审核页，查看用户提交的认领申请和线索说明。
- *
- * 注意：
- * 第一优先级只处理 claim / clue。
- * wrong_return 属于第二优先级“领错归还”，不要混进第一阶段认领审核。
+ * 用途：认领审核页，查看用户提交的认领申请、线索说明和归还说明。
  */
 export const getAdminClaimsApi = params => {
   return request.get('/api/admin/claims', {
@@ -71,7 +67,7 @@ export const getAdminClaimsApi = params => {
  */
 export const auditAdminClaimApi = (id, data) => {
   return request.put(`/api/admin/claims/${id}/audit`, {
-    status: data.status,
+    action: data.status,
     audit_reason: data.auditReason || ''
   })
 }
@@ -80,9 +76,6 @@ export const auditAdminClaimApi = (id, data) => {
  * 第二优先级：创建交接记录
  * 文档接口：POST /api/handover-records
  * 用途：管理员完成线下 / 邮寄交接后生成交接记录。
- *
- * 注意：
- * 工作人员职责已经并入 admin，不再单独使用 staff 角色。
  */
 export const createHandoverRecordApi = data => {
   return request.post('/api/handover-records', {
@@ -196,32 +189,77 @@ export const getAdminBlacklistsApi = params => {
  * 第二优先级：添加黑名单
  * 文档接口：POST /api/admin/blacklists
  * 用途：限制恶意发布、频繁认领失败、疑似冒领等异常用户。
+ *
+ * 字段：
+ * - user_id：用户 ID
+ * - reason：限制原因
+ * - limit_type：publish / claim / all
+ * - started_at：限制开始时间，不传则后端默认当前时间
+ * - expires_at：限制到期时间，null 表示长期限制
  */
 export const addAdminBlacklistApi = data => {
   return request.post('/api/admin/blacklists', {
     user_id: data.userId,
     reason: data.reason || '',
-    limit_type: data.limitType || 'all'
+    limit_type: data.limitType || 'all',
+    started_at: data.startedAt || '',
+    expires_at: data.expiresAt || null
   })
 }
 
 /**
- * 第二优先级：管理员数据分析
- * 文档接口：GET /api/admin/analytics
- * 用途：展示类别统计、地点统计、成功率、热点区域等运营数据。
+ * 第二优先级：解除黑名单限制
+ * 文档接口：PUT /api/admin/blacklists/{id}/release
+ *
+ * 用途：
+ * - 管理员解除某条黑名单限制
+ * - 不删除原记录，只把状态改为 inactive
+ *
+ * 字段：
+ * - release_reason：解除原因
  */
-export const getAdminAnalyticsApi = () => {
-  return request.get('/api/admin/analytics')
+export const releaseAdminBlacklistApi = (id, data) => {
+  return request.put(`/api/admin/blacklists/${id}/release`, {
+    release_reason: data.releaseReason || ''
+  })
 }
 
 /**
- * 第二优先级：管理员审核实名认证
- * 文档接口：PUT /api/admin/verifications/{id}/audit
- * 用途：审核某一条实名认证申请。
+ * 第二优先级：删除黑名单记录
+ * 文档接口：DELETE /api/admin/blacklists/{id}
  *
- * 注意：
- * 当前阶段不新增 GET /api/admin/verifications。
- * 所以这个接口可以保留，但页面不主动接认证申请列表。
+ * 用途：
+ * - 删除误添加、测试误加或重复添加的黑名单记录
+ * - 正常解除限制请使用 release 接口
+ */
+export const deleteAdminBlacklistApi = id => {
+  return request.delete(`/api/admin/blacklists/${id}`)
+}
+
+/**
+ * 第二优先级：管理员获取实名认证申请列表
+ * 文档接口：GET /api/admin/verifications
+ *
+ * 查询参数：
+ * - page
+ * - page_size
+ * - status：pending / approved / rejected
+ * - level：basic / full
+ * - keyword：真实姓名 / 学号 / 手机号 / 邮箱
+ */
+export const getAdminVerificationsApi = params => {
+  return request.get('/api/admin/verifications', {
+    params
+  })
+}
+
+/**
+ * 第二优先级：管理员审核实名认证申请
+ * 文档接口：PUT /api/admin/verifications/{id}/audit
+ *
+ * 字段：
+ * - status：approved / rejected
+ * - reject_reason：驳回原因
  */
 export const auditAdminVerificationApi = (id, data) => {
   return request.put(`/api/admin/verifications/${id}/audit`, {
@@ -231,80 +269,20 @@ export const auditAdminVerificationApi = (id, data) => {
 }
 
 /**
- * 停用接口：以下接口不是当前 V2.9 需求文档明确接口。
- * 当前只保留注释说明，避免后续误接。
- */
-
-/**
- * 停用原因：
- * 需求文档没有 GET /api/admin/handover/claims。
+ * 第二优先级：管理员数据分析
+ * 文档接口：GET /api/admin/analytics
  *
- * 替代方案：
- * 使用第一优先级接口 GET /api/admin/claims 获取认领申请列表，
- * 前端筛选 status 为 approved / handover_pending 的记录作为待交接队列。
- */
-// export const getAdminHandoverClaimsApi = params => {
-//   return request.get('/api/admin/handover/claims', {
-//     params
-//   })
-// }
-
-/**
- * 停用原因：
- * 需求文档没有 POST /api/admin/handover/claims/{id}/complete。
+ * 用途：
+ * - 展示活跃用户
+ * - 成功找回率
+ * - 发布频率
+ * - 风险用户数量
+ * - 高频丢失地点
+ * - 认领阶段统计
  *
- * 替代方案：
- * 使用第二优先级接口 POST /api/handover-records 创建交接记录。
+ * 注意：
+ * 该接口需要后端实现。如果后端暂未实现，数据分析页会收到 404。
  */
-// export const completeHandoverApi = (id, data) => {
-//   return request.post(`/api/admin/handover/claims/${id}/complete`, {
-//     method: data.method,
-//     remark: data.remark || ''
-//   })
-// }
-
-/**
- * 停用原因：
- * 需求文档没有 GET /api/admin/users。
- *
- * 替代方案：
- * 当前阶段不做管理员用户列表。
- * 黑名单管理直接使用 GET /api/admin/blacklists 和 POST /api/admin/blacklists。
- */
-// export const getAdminUsersApi = params => {
-//   return request.get('/api/admin/users', {
-//     params
-//   })
-// }
-
-/**
- * 停用原因：
- * 需求文档没有 POST /api/admin/risk-actions。
- *
- * 替代方案：
- * 使用第二优先级接口 POST /api/admin/blacklists。
- */
-// export const createRiskActionApi = data => {
-//   return request.post('/api/admin/risk-actions', {
-//     action: data.action,
-//     user_id: data.userId,
-//     reason: data.reason || ''
-//   })
-// }
-
-/**
- * 第二优先级缺口接口：当前不新增。
- *
- * 停用原因：
- * 需求文档只有 PUT /api/admin/verifications/{id}/audit，
- * 没有明确写 GET /api/admin/verifications。
- *
- * 当前策略：
- * 实名认证审核作为第二优先级预留能力，
- * 暂不向后端新增认证申请列表接口。
- */
-// export const getAdminVerificationsApi = params => {
-//   return request.get('/api/admin/verifications', {
-//     params
-//   })
-// }
+export const getAdminAnalyticsApi = () => {
+  return request.get('/api/admin/analytics')
+}

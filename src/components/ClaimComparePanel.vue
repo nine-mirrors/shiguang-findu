@@ -37,7 +37,8 @@ const itemImage = computed(() => {
 })
 
 const itemText = computed(() => {
-  return `${props.item?.name || ''} ${props.item?.description || ''}`.toLowerCase()
+  const text = `${props.item?.name || ''} ${props.item?.description || ''} ${props.item?.category?.name || props.item?.category || ''} ${props.item?.location || ''}`.toLowerCase()
+  return text
 })
 
 const score = computed(() => {
@@ -46,10 +47,11 @@ const score = computed(() => {
   if (proofImages.value.length) value += 28
   if (proofText.value.length >= 20) value += 24
 
+  const text = itemText.value
   const hits = proofText.value
     .toLowerCase()
     .split(/[\s,，。；;、/]+/)
-    .filter(word => word.length >= 2 && itemText.value.includes(word))
+    .filter(word => word.length >= 2 && text.includes(word))
     .length
 
   value += Math.min(20, hits * 7)
