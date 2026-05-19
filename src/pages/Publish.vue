@@ -249,6 +249,9 @@ const loadDraft = () => {
     return false
   }
 
+  // 过滤掉已失效的 blob URL（页面刷新后 blob URL 会失效）
+  const validImages = (draft.images || []).filter(url => !url.startsWith('blob:'))
+
   Object.assign(form, {
     type: draft.type || 'lost',
     name: draft.name || '',
@@ -258,7 +261,7 @@ const loadDraft = () => {
     happenTime: draft.happenTime || '',
     description: draft.description || '',
     contact: draft.contact || '',
-    images: draft.images || [],
+    images: validImages,
     imageFiles: [],
     claimHint: draft.claimHint || '',
     retentionDays: draft.retentionDays || 30,

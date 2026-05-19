@@ -39,6 +39,15 @@ export const getMyItemsApi = params => {
 }
 
 /**
+ * 第一优先级：获取首页统计
+ * 文档接口：GET /api/home/statistics
+ * 用途：首页统计卡片（已帮助找回、待审核等）
+ */
+export const getHomeStatisticsApi = () => {
+  return request.get('/api/home/statistics')
+}
+
+/**
  * 第一优先级：发布失物 / 招领信息
  * 文档接口：POST /api/lost-found/items
  *
@@ -52,6 +61,8 @@ export const getMyItemsApi = params => {
  * - contact
  * - visibility
  * - is_valuable
+ * - claim_hint
+ * - retention_days
  *
  * 注意：
  * 图片不在这里直接传，图片通过 POST /api/lost-found/items/{id}/images 单独上传。
@@ -100,12 +111,10 @@ export const updateItemApi = (id, data) => {
 /**
  * 第一优先级：修改物品状态
  * 文档接口：PUT /api/lost-found/items/{id}/status
- * 用途：发布人或管理员将物品标记为找回、已交接、关闭等状态。
+ * 用途：标记已找回、关闭信息、延长保管期等。
  *
- * 推荐状态：
- * - open：进行中
- * - completed：已完成
- * - closed：已关闭
+ * 字段：
+ * - status: done / closed / open
  */
 export const updateItemStatusApi = (id, data) => {
   return request.put(`/api/lost-found/items/${id}/status`, {
@@ -116,7 +125,7 @@ export const updateItemStatusApi = (id, data) => {
 /**
  * 第一优先级：删除发布信息
  * 文档接口：DELETE /api/lost-found/items/{id}
- * 用途：发布人或管理员删除错误、过期、违规的失物 / 招领信息。
+ * 用途：我的发布页删除已发布的信息。
  */
 export const deleteItemApi = id => {
   return request.delete(`/api/lost-found/items/${id}`)
@@ -125,7 +134,7 @@ export const deleteItemApi = id => {
 /**
  * 第一优先级：上传物品图片
  * 文档接口：POST /api/lost-found/items/{id}/images
- * 用途：发布信息创建成功后，继续上传 1-3 张物品照片。
+ * 用途：发布页上传物品照片。
  *
  * 注意：
  * - 这里只接收 File 对象

@@ -14,11 +14,14 @@ import {
   ElFormItem,
   ElInput,
   ElInputNumber,
+  ElLoading,
   ElOption,
   ElPagination,
   ElRadioButton,
   ElRadioGroup,
   ElSelect,
+  ElSkeleton,
+  ElSkeletonItem,
   ElStep,
   ElSteps,
   ElTabPane,
@@ -38,6 +41,7 @@ import 'element-plus/es/components/form/style/css'
 import 'element-plus/es/components/form-item/style/css'
 import 'element-plus/es/components/input/style/css'
 import 'element-plus/es/components/input-number/style/css'
+import 'element-plus/es/components/loading/style/css'
 import 'element-plus/es/components/message/style/css'
 import 'element-plus/es/components/message-box/style/css'
 import 'element-plus/es/components/option/style/css'
@@ -45,6 +49,8 @@ import 'element-plus/es/components/pagination/style/css'
 import 'element-plus/es/components/radio-button/style/css'
 import 'element-plus/es/components/radio-group/style/css'
 import 'element-plus/es/components/select/style/css'
+import 'element-plus/es/components/skeleton/style/css'
+import 'element-plus/es/components/skeleton-item/style/css'
 import 'element-plus/es/components/step/style/css'
 import 'element-plus/es/components/steps/style/css'
 import 'element-plus/es/components/tab-pane/style/css'
@@ -69,11 +75,14 @@ const elementComponents = [
   ElFormItem,
   ElInput,
   ElInputNumber,
+  ElLoading,
   ElOption,
   ElPagination,
   ElRadioButton,
   ElRadioGroup,
   ElSelect,
+  ElSkeleton,
+  ElSkeletonItem,
   ElStep,
   ElSteps,
   ElTabPane,

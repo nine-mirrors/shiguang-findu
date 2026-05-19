@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { sendEmailCodeApi } from '@/api/auth'
 import { cancelUserAccountApi, getUserProfileApi, updateUserProfileApi } from '@/api/user'
 import { useUserStore } from '@/stores/user'
