@@ -45,10 +45,10 @@ const getRedirectPath = () => {
 const submit = async () => {
   if (loading.value) return
 
-  await formRef.value.validate()
   loading.value = true
 
   try {
+    await formRef.value.validate()
     await userStore.login(form)
     ElMessage.success('登录成功')
     router.push(getRedirectPath())

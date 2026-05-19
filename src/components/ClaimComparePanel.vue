@@ -23,17 +23,34 @@ const actionText = computed(() => {
   return itemType.value === 'found' ? '提交认领申请' : '提交线索'
 })
 
-const itemImage = computed(() => {
-  if (props.item?.image) return props.item.image
-  if (props.item?.image_url) return props.item.image_url
+const getFullImageUrl = url => {
+  if (!url) return ''
+  if (/^https?:\/\//.test(url)) return url
 
-  if (Array.isArray(props.item?.images) && props.item.images.length) {
+  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
+
+  if (url.startsWith('/storage/')) return `${baseURL}${url}`
+  if (url.startsWith('storage/')) return `${baseURL}/${url}`
+
+  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
+}
+
+const itemImage = computed(() => {
+  let url = ''
+
+  if (props.item?.image) {
+    url = props.item.image
+  } else if (props.item?.image_url) {
+    url = props.item.image_url
+  } else if (Array.isArray(props.item?.images) && props.item.images.length) {
     const firstImage = props.item.images[0]
 
-    return typeof firstImage === 'string' ? firstImage : firstImage.image_url || firstImage.url || ''
+    url = typeof firstImage === 'string'
+      ? firstImage
+      : firstImage.image_url || firstImage.url || firstImage.path || ''
   }
 
-  return ''
+  return getFullImageUrl(url)
 })
 
 const itemText = computed(() => {
@@ -75,7 +92,20 @@ const reset = () => {
 const goClaim = () => {
   if (!props.item?.id) return ElMessage.warning('物品信息缺少 ID，暂时无法进入认领流程')
 
-  router.push(`/items/${props.item.id}/claim`)
+  const query = {}
+
+  if (proofText.value.trim()) {
+    query.proofText = proofText.value.trim()
+  }
+
+  if (proofImages.value.length) {
+    query.proofImages = JSON.stringify(proofImages.value)
+  }
+
+  router.push({
+    path: `/items/${props.item.id}/claim`,
+    query
+  })
 }
 </script>
 

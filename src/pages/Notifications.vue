@@ -10,6 +10,8 @@ const router = useRouter()
 
 const list = ref([])
 const loading = ref(false)
+const readAllLoading = ref(false)
+const readingIds = ref(new Set())
 const detailVisible = ref(false)
 const currentNotice = ref(null)
 
@@ -97,7 +99,9 @@ const getNoticePayload = item => {
 const getRelatedItemId = item => {
   const payload = getNoticePayload(item)
 
-  return item.item_id || item.itemId || payload.item_id || payload.itemId || ''
+  const id = item.item_id || item.itemId || payload.item_id || payload.itemId || ''
+
+  return id
 }
 
 const getRelatedClaimId = item => {
@@ -108,14 +112,19 @@ const getRelatedClaimId = item => {
 
 const getTargetType = item => {
   const payload = getNoticePayload(item)
-
   return item.target_type || item.targetType || payload.target_type || payload.targetType || 'item'
 }
 
 const getTargetId = item => {
   const payload = getNoticePayload(item)
 
-  return item.target_id || item.targetId || payload.target_id || payload.targetId || getRelatedItemId(item) || getRelatedClaimId(item) || ''
+  // 根据需求文档，target_id 的含义取决于 target_type：
+  // - target_type = 'item' 时，target_id 是物品 ID
+  // - target_type = 'claim' 时，target_id 是认领申请 ID
+  // 所以直接返回 target_id，不需要额外处理
+  const targetId = item.target_id || item.targetId || payload.target_id || payload.targetId || ''
+
+  return targetId
 }
 
 const hasRelatedTarget = item => {
@@ -133,35 +142,65 @@ const load = async () => {
   }
 }
 
+const isReading = item => readingIds.value.has(item.id)
+
+const setReading = (item, value) => {
+  const next = new Set(readingIds.value)
+
+  if (value) {
+    next.add(item.id)
+  } else {
+    next.delete(item.id)
+  }
+
+  readingIds.value = next
+}
+
 const openDetail = async item => {
+  if (isReading(item)) return
+
   currentNotice.value = item
   detailVisible.value = true
 
   if (!isUnread(item)) return
 
-  await readNotificationApi(item.id)
+  setReading(item, true)
 
-  list.value = list.value.map(notice => {
-    if (notice.id !== item.id) return notice
+  try {
+    await readNotificationApi(item.id)
 
-    return {
-      ...notice,
-      is_read: true,
-      read: true,
-      read_at: new Date().toISOString()
-    }
-  })
+    list.value = list.value.map(notice => {
+      if (notice.id !== item.id) return notice
+
+      return {
+        ...notice,
+        is_read: true,
+        read: true,
+        read_at: new Date().toISOString()
+      }
+    })
+  } finally {
+    setReading(item, false)
+  }
 }
 
 const readAll = async () => {
+  if (readAllLoading.value) return
+
   if (!list.value.some(item => isUnread(item))) {
     ElMessage.info('当前没有未读通知')
     return
   }
 
-  await readAllNotificationsApi()
-  ElMessage.success('已全部标记为已读')
-  await load()
+  readAllLoading.value = true
+
+  try {
+    await readAllNotificationsApi()
+    ElMessage.success('已全部标记为已读')
+    await load()
+  } finally {
+    readAllLoading.value = false
+  }
 }
 
 const goRelatedTarget = () => {
@@ -179,6 +218,7 @@ const goRelatedTarget = () => {
 
   switch (targetType) {
     case 'claim':
+    case 'claim_request':
       router.push(`/my-posts?tab=claims`)
       break
     case 'item':
@@ -209,7 +249,7 @@ onMounted(load)
             <span v-if="unreadCount">还有 {{ unreadCount }} 条未读</span>
           </div>
 
-          <el-button size="small" :loading="loading" @click="readAll">全部已读</el-button>
+          <el-button size="small" :loading="readAllLoading" :disabled="loading" @click="readAll">全部已读</el-button>
         </div>
 
         <div v-if="!loading && !list.length" class="empty-text">
@@ -271,8 +311,6 @@ onMounted(load)
 
         <div class="detail-meta">
           <span>状态：{{ isUnread(currentNotice) ? '未读' : '已读' }}</span>
-          <span v-if="getRelatedItemId(currentNotice)">关联物品 ID：{{ getRelatedItemId(currentNotice) }}</span>
-          <span v-if="getRelatedClaimId(currentNotice)">关联认领 ID：{{ getRelatedClaimId(currentNotice) }}</span>
         </div>
       </div>
 

@@ -43,7 +43,6 @@ const form = reactive({
   imageFiles: [],
   claimHint: '',
   retentionDays: 30,
-  visibility: 'public',
   isValuable: false
 })
 
@@ -100,9 +99,7 @@ const rules = {
   contact: [
     { required: true, message: '请输入联系方式', trigger: 'blur' }
   ],
-  visibility: [
-    { required: true, message: '请选择可见范围', trigger: 'change' }
-  ]
+
 }
 
 const disabledFutureTime = date => {
@@ -137,7 +134,6 @@ const previewItem = computed(() => {
     image: form.images[0] || '',
     storageCode: form.type === 'found' ? '待审核入库' : '待匹配',
     retentionDays: form.retentionDays,
-    visibility: form.visibility,
     isValuable: form.isValuable,
     createdAt: new Date().toISOString().slice(0, 16).replace('T', ' ')
   }
@@ -211,7 +207,6 @@ const reset = (clearDraft = true) => {
     imageFiles: [],
     claimHint: '',
     retentionDays: 30,
-    visibility: 'public',
     isValuable: false
   })
   draftSavedAt.value = ''
@@ -235,7 +230,6 @@ const saveDraft = () => {
     images: form.images,
     claimHint: form.claimHint,
     retentionDays: form.retentionDays,
-    visibility: form.visibility,
     isValuable: form.isValuable,
     savedAt: Date.now()
   }
@@ -268,7 +262,6 @@ const loadDraft = () => {
     imageFiles: [],
     claimHint: draft.claimHint || '',
     retentionDays: draft.retentionDays || 30,
-    visibility: draft.visibility || 'public',
     isValuable: draft.isValuable || false
   })
   draftSavedAt.value = new Date(draft.savedAt).toLocaleString()
@@ -300,10 +293,19 @@ const loadCategories = async () => {
 }
 
 const submit = async () => {
+  if (loading.value) return
+
   await formRef.value.validate()
 
   if (isUsingFallbackCategories.value) {
     ElMessage.warning('分类接口暂未加载成功，请稍后重试')
+    return
+  }
+
+  // 确保 category_id 是数字，不是字符串名称
+  const selectedCategory = categories.value.find(c => String(c.id) === String(form.categoryId))
+  if (!selectedCategory || typeof selectedCategory.id === 'string') {
+    ElMessage.warning('请选择有效的分类')
     return
   }
 
@@ -380,7 +382,6 @@ const loadEditData = async () => {
       imageFiles: [],
       claimHint: item.claim_hint || item.claimHint || '',
       retentionDays: item.retention_days || item.retentionDays || 30,
-      visibility: item.visibility || 'public',
       isValuable: item.is_valuable || item.isValuable || false
     })
   } catch {
@@ -541,14 +542,6 @@ watch(
           </div>
 
           <div class="two-col">
-            <el-form-item label="可见范围" prop="visibility">
-              <el-select v-model="form.visibility" placeholder="请选择">
-                <el-option label="公开展示" value="public" />
-                <el-option label="仅匹配用户可见" value="matched" />
-                <el-option label="仅管理员可见" value="admin_only" />
-              </el-select>
-            </el-form-item>
-
             <el-form-item label="风险标记">
               <el-checkbox v-model="form.isValuable">贵重物品，认领时加强核验</el-checkbox>
             </el-form-item>

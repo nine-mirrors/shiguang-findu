@@ -160,6 +160,8 @@ async function loadVerification() {
 }
 
 async function submit() {
+  if (submitting.value) return
+
   await formRef.value.validate()
 
   submitting.value = true

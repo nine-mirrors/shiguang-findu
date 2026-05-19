@@ -139,8 +139,14 @@ request.interceptors.response.use(
         ElMessage.error(message || '账号或密码错误')
       }
     } else if (status === 403) {
-      ElMessage.error('当前账号没有操作权限')
-      redirectToForbidden()
+      const isBlocked = responseData?.code === 'user_blocked' || responseData?.blocked === true || (message && message.includes('限制'))
+
+      if (isBlocked) {
+        ElMessage.error(message || '当前账号已被限制，请联系管理员')
+      } else {
+        ElMessage.error('当前账号没有操作权限')
+        redirectToForbidden()
+      }
     } else if (status === 404) {
       ElMessage.error('接口不存在，请检查请求地址')
     } else if (status === 422) {

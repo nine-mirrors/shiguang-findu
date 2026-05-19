@@ -141,6 +141,8 @@ const loadProfile = async () => {
 }
 
 const saveProfile = async () => {
+  if (saving.value) return
+
   if (!editForm.value.username || editForm.value.username.length < 2 || editForm.value.username.length > 10) {
     ElMessage.warning('用户名长度应为 2-10 个字符')
     return
@@ -160,6 +162,8 @@ const saveProfile = async () => {
 }
 
 const sendCancelCode = async () => {
+  if (codeLoading.value || countdown.value > 0) return
+
   if (!profile.value.email) {
     ElMessage.warning('当前账号邮箱不存在，无法发送验证码')
     return
@@ -192,6 +196,8 @@ const openCancelDialog = async () => {
 }
 
 const submitCancelAccount = async () => {
+  if (cancelLoading.value) return
+
   if (!cancelForm.password) {
     ElMessage.warning('请输入当前登录密码')
     return
@@ -202,19 +208,19 @@ const submitCancelAccount = async () => {
     return
   }
 
-  await ElMessageBox.confirm(
-    '请再次确认是否注销当前账号。注销成功后会退出登录。',
-    '最终确认',
-    {
-      type: 'error',
-      confirmButtonText: '确认注销',
-      cancelButtonText: '取消'
-    }
-  )
-
   cancelLoading.value = true
 
   try {
+    await ElMessageBox.confirm(
+      '请再次确认是否注销当前账号。注销成功后会退出登录。',
+      '最终确认',
+      {
+        type: 'error',
+        confirmButtonText: '确认注销',
+        cancelButtonText: '取消'
+      }
+    )
+
     await cancelUserAccountApi(cancelForm)
     ElMessage.success('账号已注销')
     cancelDialog.value = false

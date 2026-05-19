@@ -29,7 +29,7 @@ const normalizeAnalytics = res => {
   const claimsByStatus = payload.claims_by_status || {}
   const itemsByStatus = payload.items_by_status || {}
   const itemsByType = payload.items_by_type || {}
-  const dailyTrend = payload.daily_trend_last_7_days || {}
+  const dailyTrendRaw = payload.daily_trend_last_7_days || {}
   const usersByVerification = payload.users_by_verification_level || {}
   const hotLocationsFromBackend = payload.hot_locations || payload.hotLocations || null
 
@@ -37,13 +37,27 @@ const normalizeAnalytics = res => {
   const completedClaims = (claimsByStatus['completed'] || 0) + (claimsByStatus['approved'] || 0)
   const successRate = totalClaims > 0 ? Math.round((completedClaims / totalClaims) * 100) : 0
 
-  const dailyValues = Object.values(dailyTrend)
+  // 适配新的数据结构：daily_trend_last_7_days: { new_items: {...}, new_claims: {...} }
+  let dailyTrendData = []
+  if (dailyTrendRaw.new_items && dailyTrendRaw.new_claims) {
+    const itemDates = Object.keys(dailyTrendRaw.new_items)
+    dailyTrendData = itemDates.map(date => ({
+      date,
+      items: Number(dailyTrendRaw.new_items[date]) || 0,
+      claims: Number(dailyTrendRaw.new_claims[date]) || 0
+    })).sort((a, b) => a.date.localeCompare(b.date))
+  } else if (typeof dailyTrendRaw === 'object' && !dailyTrendRaw.new_items) {
+    // 兼容旧结构
+    dailyTrendData = Object.entries(dailyTrendRaw)
+      .map(([date, value]) => ({ date, items: Number(value) || 0, claims: 0 }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }
+
+  // 计算近7日平均发布数
   let avgDailyPublish = '0'
-  if (dailyValues.length > 0) {
-    const sum = dailyValues.reduce((a, b) => a + Number(b), 0)
-    avgDailyPublish = Number.isFinite(sum) && dailyValues.length > 0
-      ? (sum / dailyValues.length).toFixed(1)
-      : '0'
+  if (dailyTrendData.length > 0) {
+    const sum = dailyTrendData.reduce((a, b) => a + b.items, 0)
+    avgDailyPublish = Number.isFinite(sum) ? (sum / dailyTrendData.length).toFixed(1) : '0'
   }
 
   let hotLocations = []
@@ -71,10 +85,6 @@ const normalizeAnalytics = res => {
     { name: '已关闭', value: itemsByStatus['closed'] || 0, type: 'info' }
   ].filter(item => item.value > 0)
 
-  const dailyTrendData = Object.entries(dailyTrend)
-    .map(([date, value]) => ({ date, value: Number(value) || 0 }))
-    .sort((a, b) => a.date.localeCompare(b.date))
-
   return {
     activeUsers: Object.values(usersByVerification).reduce((a, b) => a + Number(b), 0) || overview['总用户数'] || 0,
     successRate,
@@ -91,6 +101,19 @@ const normalizeAnalytics = res => {
 const barWidth = (value, list) => {
   const max = Math.max(...(list || []).map(item => item.value), 1)
   return `${Math.max(8, value / max * 100)}%`
+}
+
+const trendBarHeight = value => {
+  const allValues = data.value.dailyTrend.flatMap(d => [d.items, d.claims])
+  const max = Math.max(...allValues, 1)
+  // 值为0时不显示柱子
+  if (value <= 0) return '0px'
+  // 非0值确保最小高度可见
+  const minHeight = 24
+  const maxHeight = 140
+  const ratio = max > 0 ? value / max : 0
+  const height = Math.max(minHeight, Math.round(ratio * maxHeight))
+  return `${height}px`
 }
 
 const stageIcon = name => {
@@ -187,6 +210,7 @@ onMounted(load)
             { key: 'overview', label: '总览' },
             { key: 'items', label: '物品分析' },
             { key: 'claims', label: '认领分析' },
+            { key: 'locations', label: '热点区域' },
             { key: 'trend', label: '趋势' },
             { key: 'advice', label: '运营建议' }
           ]"
@@ -237,29 +261,6 @@ onMounted(load)
             />
           </div>
         </section>
-
-        <section class="glass-card panel">
-          <h2>热点区域预警</h2>
-          <p>根据地点聚合失物 / 招领数据，便于管理员发布安全提醒。</p>
-
-          <div v-if="data.hotLocations.length" class="hot-location-grid">
-            <div v-for="location in data.hotLocations" :key="location.name" class="hot-location-card">
-              <div class="hot-location-header">
-                <LineIcon name="pin" tone="purple" />
-                <span>{{ location.name }}</span>
-                <b>{{ location.value }} 件</b>
-              </div>
-              <div class="hot-location-bar">
-                <i :style="{ width: barWidth(location.value, data.hotLocations) }"></i>
-              </div>
-            </div>
-          </div>
-
-          <div v-else class="hot-location-fallback">
-            <p>后端暂未提供地点聚合数据。当前展示的是物品状态分布。</p>
-            <p>如需热点区域功能，请联系后端开发添加 <code>hot_locations</code> 字段。</p>
-          </div>
-        </section>
       </template>
 
       <!-- 物品分析 Tab -->
@@ -304,17 +305,62 @@ onMounted(load)
         </section>
       </template>
 
+      <!-- 热点区域 Tab -->
+      <template v-if="activeTab === 'locations'">
+        <section class="glass-card panel">
+          <h2>热点区域预警</h2>
+          <p>根据地点聚合失物 / 招领数据，便于管理员发布安全提醒。</p>
+
+          <div v-if="data.hotLocations.length" class="hot-location-grid">
+            <div v-for="location in data.hotLocations" :key="location.name" class="hot-location-card">
+              <div class="hot-location-header">
+                <LineIcon name="pin" tone="purple" />
+                <span>{{ location.name }}</span>
+                <b>{{ location.value }} 件</b>
+              </div>
+              <div class="hot-location-bar">
+                <i :style="{ width: barWidth(location.value, data.hotLocations) }"></i>
+              </div>
+            </div>
+          </div>
+
+          <EmptyState
+            v-else
+            icon="pin"
+            title="暂无热点数据"
+            desc="后端暂未提供地点聚合数据，请联系后端开发添加 hot_locations 字段。"
+          />
+        </section>
+      </template>
+
       <!-- 趋势 Tab -->
       <template v-if="activeTab === 'trend'">
         <section v-if="data.dailyTrend.length" class="glass-card panel trend-panel">
           <h2>近7日数据趋势</h2>
           <p>每日新增物品 / 认领数量变化。</p>
 
+          <div class="trend-legend">
+            <span class="legend-item">
+              <i class="legend-dot items"></i> 新增物品
+            </span>
+            <span class="legend-item">
+              <i class="legend-dot claims"></i> 新增认领
+            </span>
+          </div>
+
           <div class="trend-chart">
-            <div v-for="(item, index) in data.dailyTrend" :key="item.date" class="trend-bar-wrapper">
-              <div class="trend-bar" :style="{ height: barWidth(item.value, data.dailyTrend) }"></div>
+            <div v-for="item in data.dailyTrend" :key="item.date" class="trend-group">
+              <div class="trend-bars">
+                <div class="trend-bar-wrapper">
+                  <div class="trend-bar items" :style="{ height: trendBarHeight(item.items) }"></div>
+                  <span class="trend-value">{{ item.items }}</span>
+                </div>
+                <div class="trend-bar-wrapper">
+                  <div class="trend-bar claims" :style="{ height: trendBarHeight(item.claims) }"></div>
+                  <span class="trend-value">{{ item.claims }}</span>
+                </div>
+              </div>
               <span class="trend-date">{{ item.date.slice(5) }}</span>
-              <span class="trend-value">{{ item.value }}</span>
             </div>
           </div>
         </section>
@@ -535,37 +581,50 @@ onMounted(load)
   transition: width 0.6s ease;
 }
 
-.hot-location-fallback {
-  padding: 24px;
-  text-align: center;
-  color: var(--muted);
-  background: rgba(248, 251, 255, .5);
-  border-radius: 18px;
-  border: 1px dashed rgba(79, 124, 255, .2);
-}
-
-.hot-location-fallback code {
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: rgba(79, 124, 255, .1);
-  color: var(--primary-strong);
-  font-family: monospace;
-}
-
 /* 趋势图 */
 .trend-panel {
   overflow-x: auto;
 }
 
+.trend-legend {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 16px;
+  padding: 8px 0;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.legend-dot.items {
+  background: linear-gradient(180deg, var(--primary), var(--secondary));
+}
+
+.legend-dot.claims {
+  background: linear-gradient(180deg, #ff9f43, #f368e0);
+}
+
 .trend-chart {
   display: flex;
   align-items: flex-end;
-  gap: 16px;
+  gap: 24px;
   padding: 20px 0;
   min-height: 200px;
 }
 
-.trend-bar-wrapper {
+.trend-group {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -574,13 +633,35 @@ onMounted(load)
   min-width: 60px;
 }
 
+.trend-bars {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  height: 160px;
+}
+
+.trend-bar-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 28px;
+}
+
 .trend-bar {
   width: 100%;
-  max-width: 48px;
-  min-height: 4px;
-  border-radius: 8px 8px 0 0;
-  background: linear-gradient(180deg, var(--primary), var(--secondary));
+  max-width: 32px;
+  min-height: 0;
+  border-radius: 6px 6px 0 0;
   transition: height 0.6s ease;
+}
+
+.trend-bar.items {
+  background: linear-gradient(180deg, var(--primary), var(--secondary));
+}
+
+.trend-bar.claims {
+  background: linear-gradient(180deg, #ff9f43, #f368e0);
 }
 
 .trend-date {
@@ -590,7 +671,7 @@ onMounted(load)
 }
 
 .trend-value {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--primary-strong);
   font-weight: 800;
 }
@@ -621,7 +702,7 @@ onMounted(load)
   }
 
   .trend-chart {
-    gap: 8px;
+    gap: 12px;
   }
 
   .tab-bar {

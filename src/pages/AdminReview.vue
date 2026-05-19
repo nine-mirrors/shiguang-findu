@@ -35,6 +35,11 @@ const claims = ref([])
 const itemFilter = ref('pending')
 const claimFilter = ref('pending')
 
+// 分页
+const itemPage = ref(1)
+const claimPage = ref(1)
+const pageSize = ref(5)
+
 const rejectDialog = ref(false)
 const rejectReason = ref('')
 const currentRejectItem = ref(null)
@@ -47,6 +52,7 @@ const disputeDialog = ref(false)
 const disputeReason = ref('')
 const currentDisputeClaim = ref(null)
 const disputeLoading = ref(false)
+const actionLoading = ref(new Set())
 
 const itemDetailDialog = ref(false)
 const currentItemDetail = ref(null)
@@ -60,6 +66,40 @@ const normalizeList = res => {
 
   return Array.isArray(list) ? list : []
 }
+
+const getActionKey = (scope, id) => `${scope}:${id || ''}`
+
+const isActionLoading = (scope, id) => {
+  return actionLoading.value.has(getActionKey(scope, id))
+}
+
+const setActionLoading = (scope, id, value) => {
+  const key = getActionKey(scope, id)
+  const next = new Set(actionLoading.value)
+
+  if (value) {
+    next.add(key)
+  } else {
+    next.delete(key)
+  }
+
+  actionLoading.value = next
+}
+
+const runAction = async (scope, id, task) => {
+  if (isActionLoading(scope, id)) return false
+
+  setActionLoading(scope, id, true)
+
+  try {
+    await task()
+    return true
+  } finally {
+    setActionLoading(scope, id, false)
+  }
+}
+
+const isDialogCancel = error => error === 'cancel' || error === 'close'
 
 const getFullImageUrl = url => {
   if (!url) return ''
@@ -165,11 +205,27 @@ const filteredItems = computed(() => {
     ? items.value
     : items.value.filter(item => getAuditStatus(item) === itemFilter.value)
 
-  if (!kw) return source
+  let result = source
+  if (kw) {
+    result = source.filter(item => {
+      return `${item.name || ''}${item.location || ''}${item.description || ''}`.toLowerCase().includes(kw)
+    })
+  }
 
+  // 分页
+  const start = (itemPage.value - 1) * pageSize.value
+  return result.slice(start, start + pageSize.value)
+})
+
+const filteredItemsTotal = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  const source = itemFilter.value === 'all'
+    ? items.value
+    : items.value.filter(item => getAuditStatus(item) === itemFilter.value)
+  if (!kw) return source.length
   return source.filter(item => {
     return `${item.name || ''}${item.location || ''}${item.description || ''}`.toLowerCase().includes(kw)
-  })
+  }).length
 })
 
 const filteredClaims = computed(() => {
@@ -182,13 +238,31 @@ const filteredClaims = computed(() => {
     return claim.status === claimFilter.value
   })
 
-  if (!kw) return source
+  let result = source
+  if (kw) {
+    result = source.filter(claim => {
+      const item = getClaimItem(claim)
+      return `${item?.name || ''}${getClaimProofText(claim) || ''}${claim.phone || ''}`.toLowerCase().includes(kw)
+    })
+  }
 
+  // 分页
+  const start = (claimPage.value - 1) * pageSize.value
+  return result.slice(start, start + pageSize.value)
+})
+
+const filteredClaimsTotal = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  const source = claims.value.filter(claim => {
+    if (claimFilter.value === 'all') return true
+    if (claimFilter.value === 'handover') return ['approved', 'handover_pending'].includes(claim.status)
+    return claim.status === claimFilter.value
+  })
+  if (!kw) return source.length
   return source.filter(claim => {
     const item = getClaimItem(claim)
-
     return `${item?.name || ''}${getClaimProofText(claim) || ''}${claim.phone || ''}`.toLowerCase().includes(kw)
-  })
+  }).length
 })
 
 const emptyText = computed(() => {
@@ -244,7 +318,7 @@ const load = async () => {
   }
 }
 
-const audit = async (item, auditStatus, rejectReason = '') => {
+const applyItemAudit = async (item, auditStatus, rejectReason = '') => {
   await auditAdminItemApi(item.id, {
     auditStatus,
     rejectReason
@@ -252,6 +326,10 @@ const audit = async (item, auditStatus, rejectReason = '') => {
 
   ElMessage.success(auditStatus === 'approved' ? '已通过该发布信息' : '已拒绝该发布信息')
   await loadItems()
+}
+
+const audit = async (item, auditStatus, rejectReason = '') => {
+  return runAction('item', item.id, () => applyItemAudit(item, auditStatus, rejectReason))
 }
 
 const openReject = item => {
@@ -268,7 +346,9 @@ const confirmReject = async () => {
     return
   }
 
-  await audit(currentRejectItem.value, 'rejected', rejectReason.value.trim())
+  const completed = await audit(currentRejectItem.value, 'rejected', rejectReason.value.trim())
+
+  if (!completed) return
 
   rejectDialog.value = false
   currentRejectItem.value = null
@@ -276,32 +356,44 @@ const confirmReject = async () => {
 }
 
 const markDuplicate = async item => {
-  await ElMessageBox.confirm(`确认将「${item.name}」标记为疑似重复并拒绝？`, '疑似重复确认', {
-    type: 'warning',
-    confirmButtonText: '确认拒绝',
-    cancelButtonText: '取消'
-  })
+  try {
+    await runAction('item', item.id, async () => {
+      await ElMessageBox.confirm(`确认将「${item.name}」标记为疑似重复并拒绝？`, '疑似重复确认', {
+        type: 'warning',
+        confirmButtonText: '确认拒绝',
+        cancelButtonText: '取消'
+      })
 
-  await audit(item, 'rejected', '疑似重复发布，请合并或补充更明确的信息')
+      await applyItemAudit(item, 'rejected', '疑似重复发布，请合并或补充更明确的信息')
+    })
+  } catch (error) {
+    if (!isDialogCancel(error)) {
+      ElMessage.error('操作失败，请稍后重试')
+    }
+  }
 }
 
 const removeItem = async item => {
   try {
-    await ElMessageBox.confirm(`确认删除「${item.name}」？删除后无法恢复。`, '删除确认', {
-      type: 'danger',
-      confirmButtonText: '确认删除',
-      cancelButtonText: '取消'
-    })
+    await runAction('item', item.id, async () => {
+      await ElMessageBox.confirm(`确认删除「${item.name}」？删除后无法恢复。`, '删除确认', {
+        type: 'danger',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消'
+      })
 
-    await deleteAdminItemApi(item.id)
-    ElMessage.success('已删除该发布信息')
-    await loadItems()
-  } catch {
-    // 用户取消
+      await deleteAdminItemApi(item.id)
+      ElMessage.success('已删除该发布信息')
+      await loadItems()
+    })
+  } catch (error) {
+    if (!isDialogCancel(error)) {
+      ElMessage.error('删除失败，请稍后重试')
+    }
   }
 }
 
-const auditClaimRow = async (claim, status, auditReason = '') => {
+const applyClaimAudit = async (claim, status, auditReason = '') => {
   const isApprove = status === 'approved'
 
   await auditAdminClaimApi(claim.id, {
@@ -315,18 +407,30 @@ const auditClaimRow = async (claim, status, auditReason = '') => {
   await loadClaims()
 }
 
-const approveClaim = async claim => {
-  await ElMessageBox.confirm(
-    '核验通过仅表示证明材料初步通过。实际交接时仍需核验学生证、校园卡或其他校园身份凭证；邮寄处理前也需核验注册邮箱、认领联系电话、校园身份信息和物品归属证明。',
-    '确认核验通过',
-    {
-      type: 'warning',
-      confirmButtonText: '确认通过',
-      cancelButtonText: '取消'
-    }
-  )
+const auditClaimRow = async (claim, status, auditReason = '') => {
+  return runAction('claim', claim.id, () => applyClaimAudit(claim, status, auditReason))
+}
 
-  await auditClaimRow(claim, 'approved')
+const approveClaim = async claim => {
+  try {
+    await runAction('claim', claim.id, async () => {
+      await ElMessageBox.confirm(
+        '核验通过仅表示证明材料初步通过。实际交接时仍需核验学生证、校园卡或其他校园身份凭证；邮寄处理前也需核验注册邮箱、认领联系电话、校园身份信息和物品归属证明。',
+        '确认核验通过',
+        {
+          type: 'warning',
+          confirmButtonText: '确认通过',
+          cancelButtonText: '取消'
+        }
+      )
+
+      await applyClaimAudit(claim, 'approved')
+    })
+  } catch (error) {
+    if (!isDialogCancel(error)) {
+      ElMessage.error('操作失败，请稍后重试')
+    }
+  }
 }
 
 const openRejectClaim = claim => {
@@ -343,7 +447,9 @@ const confirmRejectClaim = async () => {
     return
   }
 
-  await auditClaimRow(currentRejectClaim.value, 'rejected', claimRejectReason.value.trim())
+  const completed = await auditClaimRow(currentRejectClaim.value, 'rejected', claimRejectReason.value.trim())
+
+  if (!completed) return
 
   claimRejectDialog.value = false
   currentRejectClaim.value = null
@@ -388,6 +494,8 @@ const openDispute = claim => {
 }
 
 const submitDispute = async () => {
+  if (disputeLoading.value) return
+
   if (!currentDisputeClaim.value) return
 
   if (!disputeReason.value.trim()) {
@@ -489,16 +597,57 @@ onMounted(load)
             </div>
 
             <div class="actions">
-              <el-button type="success" :disabled="getAuditStatus(item) === 'approved'" @click="audit(item, 'approved')">通过</el-button>
-              <el-button type="danger" plain :disabled="getAuditStatus(item) === 'rejected'" @click="openReject(item)">拒绝</el-button>
-              <el-button plain type="warning" @click="markDuplicate(item)">疑似重复</el-button>
-              <el-button plain type="info" @click="removeItem(item)">删除</el-button>
+              <el-button
+                type="success"
+                :loading="isActionLoading('item', item.id)"
+                :disabled="getAuditStatus(item) === 'approved' || isActionLoading('item', item.id)"
+                @click="audit(item, 'approved')"
+              >
+                通过
+              </el-button>
+              <el-button
+                type="danger"
+                plain
+                :loading="isActionLoading('item', item.id)"
+                :disabled="getAuditStatus(item) === 'rejected' || isActionLoading('item', item.id)"
+                @click="openReject(item)"
+              >
+                拒绝
+              </el-button>
+              <el-button
+                plain
+                type="warning"
+                :loading="isActionLoading('item', item.id)"
+                :disabled="isActionLoading('item', item.id)"
+                @click="markDuplicate(item)"
+              >
+                疑似重复
+              </el-button>
+              <el-button
+                plain
+                type="info"
+                :loading="isActionLoading('item', item.id)"
+                :disabled="isActionLoading('item', item.id)"
+                @click="removeItem(item)"
+              >
+                删除
+              </el-button>
               <el-button plain @click="openItemDetail(item)">查看详情</el-button>
             </div>
           </div>
 
           <div v-if="!loading && !filteredItems.length" class="empty-review">
             {{ emptyText }}
+          </div>
+
+          <div v-if="filteredItemsTotal > pageSize" class="pagination-bar">
+            <el-pagination
+              v-model:current-page="itemPage"
+              :page-size="pageSize"
+              :total="filteredItemsTotal"
+              layout="prev, pager, next, jumper"
+              background
+            />
           </div>
         </section>
       </el-tab-pane>
@@ -568,15 +717,47 @@ onMounted(load)
             </div>
 
             <div class="actions">
-              <el-button type="success" :disabled="['approved', 'handover_pending', 'completed'].includes(claim.status)" @click="approveClaim(claim)">核验通过</el-button>
-              <el-button type="danger" plain :disabled="claim.status === 'rejected' || claim.status === 'completed'" @click="openRejectClaim(claim)">驳回</el-button>
-              <el-button plain type="warning" @click="openDispute(claim)">登记争议</el-button>
+              <el-button
+                type="success"
+                :loading="isActionLoading('claim', claim.id)"
+                :disabled="['approved', 'handover_pending', 'completed'].includes(claim.status) || isActionLoading('claim', claim.id)"
+                @click="approveClaim(claim)"
+              >
+                核验通过
+              </el-button>
+              <el-button
+                type="danger"
+                plain
+                :loading="isActionLoading('claim', claim.id)"
+                :disabled="claim.status === 'rejected' || claim.status === 'completed' || isActionLoading('claim', claim.id)"
+                @click="openRejectClaim(claim)"
+              >
+                驳回
+              </el-button>
+              <el-button
+                plain
+                type="warning"
+                :disabled="isActionLoading('claim', claim.id)"
+                @click="openDispute(claim)"
+              >
+                登记争议
+              </el-button>
               <el-button plain @click="goItem(claim)">查看关联信息</el-button>
             </div>
           </div>
 
           <div v-if="!loading && !filteredClaims.length" class="empty-review">
             {{ emptyText }}
+          </div>
+
+          <div v-if="filteredClaimsTotal > pageSize" class="pagination-bar">
+            <el-pagination
+              v-model:current-page="claimPage"
+              :page-size="pageSize"
+              :total="filteredClaimsTotal"
+              layout="prev, pager, next, jumper"
+              background
+            />
           </div>
         </section>
       </el-tab-pane>
@@ -587,7 +768,13 @@ onMounted(load)
 
       <template #footer>
         <el-button @click="rejectDialog = false">取消</el-button>
-        <el-button type="danger" @click="confirmReject">确认拒绝</el-button>
+        <el-button
+          type="danger"
+          :loading="!!currentRejectItem && isActionLoading('item', currentRejectItem.id)"
+          @click="confirmReject"
+        >
+          确认拒绝
+        </el-button>
       </template>
     </el-dialog>
 
@@ -601,7 +788,13 @@ onMounted(load)
 
       <template #footer>
         <el-button @click="claimRejectDialog = false">取消</el-button>
-        <el-button type="danger" @click="confirmRejectClaim">确认驳回</el-button>
+        <el-button
+          type="danger"
+          :loading="!!currentRejectClaim && isActionLoading('claim', currentRejectClaim.id)"
+          @click="confirmRejectClaim"
+        >
+          确认驳回
+        </el-button>
       </template>
     </el-dialog>
 
@@ -634,12 +827,15 @@ onMounted(load)
           />
         </div>
 
-        <el-image-viewer
-          v-if="imageViewerVisible"
-          :url-list="itemDetailImages"
-          :initial-index="imageViewerIndex"
-          @close="imageViewerVisible = false"
-        />
+        <el-dialog
+          v-model="imageViewerVisible"
+          title="图片预览"
+          width="80%"
+          destroy-on-close
+          append-to-body
+        >
+          <img :src="itemDetailImages[imageViewerIndex]" style="width: 100%; max-height: 70vh; object-fit: contain;" />
+        </el-dialog>
 
         <div class="detail-info">
           <h3>{{ currentItemDetail.name }}</h3>
@@ -870,6 +1066,12 @@ onMounted(load)
   background: rgba(248, 251, 255, .72);
   color: var(--muted);
   font-weight: 800;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0 10px;
 }
 
 @media (max-width: 880px) {

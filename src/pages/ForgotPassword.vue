@@ -62,11 +62,16 @@ const startCountdown = () => {
 }
 
 const sendCode = async () => {
-  if (countdown.value > 0) return
-
-  await formRef.value.validateField('email')
+  if (countdown.value > 0 || codeLoading.value) return
 
   codeLoading.value = true
+
+  try {
+    await formRef.value.validateField('email')
+  } catch {
+    codeLoading.value = false
+    return
+  }
 
   try {
     await sendEmailCodeApi(form.email, 'forgot_password')
@@ -78,11 +83,12 @@ const sendCode = async () => {
 }
 
 const submit = async () => {
-  await formRef.value.validate()
+  if (loading.value) return
 
   loading.value = true
 
   try {
+    await formRef.value.validate()
     await forgotPasswordApi(form)
     ElMessage.success('密码重置成功，请重新登录')
     router.push('/login')

@@ -286,3 +286,36 @@ export const auditAdminVerificationApi = (id, data) => {
 export const getAdminAnalyticsApi = () => {
   return request.get('/api/admin/analytics')
 }
+
+/**
+ * 第二优先级：管理员获取用户列表（用于黑名单添加时搜索用户）
+ * 文档接口：GET /api/admin/users
+ *
+ * 用途：
+ * - 管理员在添加黑名单时搜索并选择目标用户
+ * - 支持按用户名、邮箱、学号模糊搜索
+ *
+ * 查询参数：
+ * - keyword：搜索关键词（可选），支持模糊匹配 username / email / student_no
+ * - page：页码，默认 1
+ * - page_size：每页数量，默认 20
+ *
+ * 响应字段（每个用户）：
+ * - id：用户 ID（数字）
+ * - username：用户名
+ * - email：邮箱
+ * - phone：手机号
+ * - role：角色（只返回 student，不返回 admin）
+ * - verification_level：认证等级（none / basic / full）
+ * - avatar：头像 URL
+ * - student_no：学号（如有）
+ *
+ * 注意：
+ * - 只返回 role = student 的普通用户，不返回管理员
+ * - keyword 为空时返回所有普通用户（分页）
+ */
+export const getAdminUsersApi = params => {
+  return request.get('/api/admin/users', {
+    params
+  })
+}

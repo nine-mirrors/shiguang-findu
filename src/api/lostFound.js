@@ -3,8 +3,7 @@ import {
   seedItems, seedUsers, seedClaims, seedNotifications, seedFavorites, seedVerification,
   seedAnnouncements, seedBlacklist, seedDisputes, seedStorage, seedAdminTodos, categories, locations
 } from './mockData'
-// Laravel 对接时再启用真实接口封装；当前比赛演示版先使用 mock 数据。
-// import request from './request'
+import request from './request'
 
 const delay = (value, time = 180) => new Promise(resolve => setTimeout(() => resolve(value), time))
 const nowText = () => new Date().toISOString().slice(0, 16).replace('T', ' ')
@@ -61,6 +60,14 @@ function publicItem(item) { return { ...item } }
 function isUserBlocked(userId, action = 'all') {
   return getBlacklistRaw().some(item => {
     const limitType = item.limitType || item.limit_type || 'all'
+    // 检查是否过期
+    const expiresAt = item.expires_at || item.expiresAt
+    if (expiresAt) {
+      const expiresTime = new Date(expiresAt).getTime()
+      if (!isNaN(expiresTime) && expiresTime < Date.now()) {
+        return false
+      }
+    }
     return String(item.userId) === String(userId)
       && item.status !== 'inactive'
       && ['blocked', 'all'].includes(item.level || limitType)
@@ -469,6 +476,7 @@ export async function resolveDispute(id, result) {
 }
 
 export async function fetchAdminUsers() {
+  // 后端暂未提供此接口，使用 mock 数据
   // return request.get('/api/admin/users')
   const verifications = getVerificationRaw()
   const blacklist = getBlacklistRaw()

@@ -20,9 +20,30 @@ const wrongReturnDialog = ref(false)
 const wrongReturnForm = ref({
   claimId: '',
   itemId: '',
-  reason: ''
+  reason: '',
+  phone: ''
 })
 const wrongReturnLoading = ref(false)
+const itemActionLoading = ref(new Set())
+
+const getItemActionKey = (action, item) => `${action}:${item?.id || ''}`
+
+const isItemActionLoading = (action, item) => {
+  return itemActionLoading.value.has(getItemActionKey(action, item))
+}
+
+const setItemActionLoading = (action, item, value) => {
+  const key = getItemActionKey(action, item)
+  const next = new Set(itemActionLoading.value)
+
+  if (value) {
+    next.add(key)
+  } else {
+    next.delete(key)
+  }
+
+  itemActionLoading.value = next
+}
 
 const doneCount = computed(() => {
   const completedItems = items.value.filter(item => ['done', 'completed', 'closed'].includes(item.status)).length
@@ -130,14 +151,28 @@ const openWrongReturn = claim => {
   wrongReturnForm.value = {
     claimId: claim.id,
     itemId: getClaimItem(claim)?.id || '',
-    reason: ''
+    reason: '',
+    phone: ''
   }
   wrongReturnDialog.value = true
 }
 
 const submitWrongReturn = async () => {
+  if (wrongReturnLoading.value) return
+
   if (!wrongReturnForm.value.reason.trim()) {
     ElMessage.warning('请填写归还原因')
+    return
+  }
+
+  if (!wrongReturnForm.value.phone.trim()) {
+    ElMessage.warning('请填写联系电话')
+    return
+  }
+
+  const phoneRegex = /^1[3-9]\d{9}$/
+  if (!phoneRegex.test(wrongReturnForm.value.phone.trim())) {
+    ElMessage.warning('请输入有效的11位手机号码')
     return
   }
 
@@ -148,7 +183,7 @@ const submitWrongReturn = async () => {
       claimType: 'wrong_return',
       proofText: wrongReturnForm.value.reason,
       pickupMethod: 'offline',
-      phone: ''
+      phone: wrongReturnForm.value.phone.trim()
     })
     ElMessage.success('领错归还申请已提交，等待管理员审核')
     wrongReturnDialog.value = false
@@ -196,6 +231,10 @@ const markDone = async item => {
     return
   }
 
+  if (isItemActionLoading('done', item)) return
+
+  setItemActionLoading('done', item, true)
+
   try {
     await ElMessageBox.confirm(
       `确认将「${item.name || '该信息'}」标记为已完成吗？`,
@@ -218,10 +257,14 @@ const markDone = async item => {
       console.error('标记完成失败:', error)
       ElMessage.error('标记失败，请稍后重试')
     }
+  } finally {
+    setItemActionLoading('done', item, false)
   }
 }
 
 const remove = async item => {
+  if (isItemActionLoading('delete', item)) return
+
   const forbiddenStatuses = ['completed', 'done', 'claimed', 'closed']
   const status = item.status
 
@@ -230,20 +273,31 @@ const remove = async item => {
     return
   }
 
-  await ElMessageBox.confirm(
-    `确认删除「${item.name || '该信息'}」？删除后将无法在我的发布中查看。`,
-    '删除确认',
-    {
-      type: 'warning',
-      confirmButtonText: '确认删除',
-      cancelButtonText: '取消'
+  setItemActionLoading('delete', item, true)
+
+  try {
+    await ElMessageBox.confirm(
+      `确认删除「${item.name || '该信息'}」？删除后将无法在我的发布中查看。`,
+      '删除确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消'
+      }
+    )
+
+    await deleteItemApi(item.id)
+
+    ElMessage.success('已删除')
+    await load()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      console.error('删除失败:', error)
+      ElMessage.error('删除失败，请稍后重试')
     }
-  )
-
-  await deleteItemApi(item.id)
-
-  ElMessage.success('已删除')
-  await load()
+  } finally {
+    setItemActionLoading('delete', item, false)
+  }
 }
 
 onMounted(load)
@@ -330,12 +384,20 @@ watch(() => route.query.tab, value => {
               </el-button>
               <el-button
                 type="success"
-                :disabled="!canMarkDone(item)"
+                :loading="isItemActionLoading('done', item)"
+                :disabled="!canMarkDone(item) || isItemActionLoading('done', item)"
                 @click="markDone(item)"
               >
                 标记完成
               </el-button>
-              <el-button type="danger" plain @click="remove(item)">删除</el-button>
+              <el-button
+                type="danger"
+                plain
+                :loading="isItemActionLoading('delete', item)"
+                @click="remove(item)"
+              >
+                删除
+              </el-button>
             </div>
           </div>
         </section>
@@ -409,7 +471,7 @@ watch(() => route.query.tab, value => {
                 size="small"
                 type="warning"
                 plain
-                @click="openWrongReturn(claim)"
+                @click="$router.push(`/items/${getClaimItem(claim).id}/claim?type=wrong_return`)"
               >
                 领错归还
               </el-button>
@@ -430,6 +492,12 @@ watch(() => route.query.tab, value => {
             type="textarea"
             :rows="4"
             placeholder="请详细说明领错的原因，例如：物品相似但细节不符、误认等"
+          />
+        </el-form-item>
+        <el-form-item label="联系电话">
+          <el-input
+            v-model.trim="wrongReturnForm.phone"
+            placeholder="用于管理员联系确认归还事宜"
           />
         </el-form-item>
       </el-form>

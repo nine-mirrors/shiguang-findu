@@ -20,6 +20,7 @@ const pageLoading = ref(true)
 const item = ref(null)
 const similar = ref([])
 const favorite = ref(false)
+const favoriteLoading = ref(false)
 const previewVisible = ref(false)
 const previewImage = ref('')
 
@@ -176,19 +177,27 @@ async function load() {
 }
 
 async function toggleFav() {
+  if (favoriteLoading.value) return
+
   if (!userStore.isLogin) {
     ElMessage.warning('请先登录后再收藏')
     return
   }
 
-  if (favorite.value) {
-    await removeFavoriteApi(item.value.id)
-    favorite.value = false
-    ElMessage.success('已取消收藏')
-  } else {
-    await addFavoriteApi(item.value.id)
-    favorite.value = true
-    ElMessage.success('已加入收藏夹')
+  favoriteLoading.value = true
+
+  try {
+    if (favorite.value) {
+      await removeFavoriteApi(item.value.id)
+      favorite.value = false
+      ElMessage.success('已取消收藏')
+    } else {
+      await addFavoriteApi(item.value.id)
+      favorite.value = true
+      ElMessage.success('已加入收藏夹')
+    }
+  } finally {
+    favoriteLoading.value = false
   }
 }
 
@@ -277,7 +286,7 @@ watch(() => route.params.id, load)
               </el-button>
             </template>
 
-            <el-button size="large" @click="toggleFav">{{ favorite ? '取消收藏' : '收藏' }}</el-button>
+            <el-button size="large" :loading="favoriteLoading" @click="toggleFav">{{ favorite ? '取消收藏' : '收藏' }}</el-button>
           </template>
 
           <template v-else>
@@ -313,7 +322,7 @@ watch(() => route.params.id, load)
       </div>
     </section>
 
-    <section class="claim-section">
+    <section v-if="item.status !== 'completed' && item.status !== 'done' && item.status !== 'closed'" class="claim-section">
       <ClaimComparePanel :item="item" />
     </section>
 
@@ -349,7 +358,9 @@ watch(() => route.params.id, load)
 }
 
 .detail-visual {
-  min-height: 420px;
+  height: 634px;
+  min-height: 634px;
+  max-height: 634px;
   display: grid;
   place-items: center;
   overflow: hidden;

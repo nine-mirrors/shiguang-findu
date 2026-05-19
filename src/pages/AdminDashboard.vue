@@ -22,15 +22,16 @@ const loading = ref(false)
 const normalizeDashboard = res => {
   const payload = res?.data || res || {}
 
+  // 适配后端可能返回的多种字段名
   return {
-    total: payload.total || 0,
-    pending: payload.pending || payload.item_pending || 0,
-    retained: payload.retained || payload.storage_retained || 0,
-    blacklist: payload.blacklist || payload.risk_users || 0,
-    claimPending: payload.claimPending || payload.claim_pending || 0,
-    todos: payload.todos || payload.admin_todos || [],
-    retainedItems: payload.retainedItems || payload.retained_items || [],
-    locations: payload.locations || payload.hot_locations || []
+    total: payload.total || payload['信息总数'] || payload.item_total || 0,
+    pending: payload.pending || payload['待审核'] || payload.item_pending || payload.items_pending || 0,
+    retained: payload.retained || payload['已关闭'] || payload.storage_retained || payload.retained_count || 0,
+    blacklist: payload.blacklist || payload.risk_users || payload.blacklist_count || payload.risk_count || payload['风险用户'] || payload['黑名单'] || 0,
+    claimPending: payload.claimPending || payload.claim_pending || payload.claims_pending || payload['认领待核验'] || 0,
+    todos: payload.todos || payload.admin_todos || payload.today_todos || [],
+    retainedItems: payload.retainedItems || payload.retained_items || payload.storage_items || [],
+    locations: payload.locations || payload.hot_locations || payload.hotLocations || []
   }
 }
 

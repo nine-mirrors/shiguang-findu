@@ -16,7 +16,7 @@ import request from './request'
 export const createClaimApi = data => {
   const isDelivery = data.pickupMethod === 'delivery'
 
-  const allowedClaimTypes = ['claim', 'clue']
+  const allowedClaimTypes = ['claim', 'clue', 'wrong_return']
   const claimType = allowedClaimTypes.includes(data.claimType) ? data.claimType : 'clue'
 
   const proofImages = Array.isArray(data.proofImages) && data.proofImages.length

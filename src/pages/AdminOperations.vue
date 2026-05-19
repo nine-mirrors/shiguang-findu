@@ -37,6 +37,47 @@ const announcements = ref([])
 const disputes = ref([])
 const categories = ref([])
 const loading = ref(false)
+const actionLoading = ref(new Set())
+
+// 分页
+const handoverPage = ref(1)
+const storagePage = ref(1)
+const announcementPage = ref(1)
+const disputePage = ref(1)
+const categoryPage = ref(1)
+const pageSize = ref(5)
+
+const getActionKey = (scope, id) => `${scope}:${id || ''}`
+
+const isActionLoading = (scope, id) => {
+  return actionLoading.value.has(getActionKey(scope, id))
+}
+
+const setActionLoading = (scope, id, value) => {
+  const key = getActionKey(scope, id)
+  const next = new Set(actionLoading.value)
+
+  if (value) {
+    next.add(key)
+  } else {
+    next.delete(key)
+  }
+
+  actionLoading.value = next
+}
+
+const runAction = async (scope, id, task) => {
+  if (isActionLoading(scope, id)) return false
+
+  setActionLoading(scope, id, true)
+
+  try {
+    await task()
+    return true
+  } finally {
+    setActionLoading(scope, id, false)
+  }
+}
 
 const categoryDialog = ref(false)
 const categoryTarget = ref(null)
@@ -140,6 +181,11 @@ const loadCategories = async () => {
   }
 }
 
+const paginatedList = (list, page) => {
+  const start = (page - 1) * pageSize.value
+  return list.slice(start, start + pageSize.value)
+}
+
 const load = async () => {
   loading.value = true
   pageLoading.value = true
@@ -178,15 +224,17 @@ const saveCategory = async () => {
   }
 
   try {
-    if (categoryTarget.value) {
-      await updateCategoryApi(categoryTarget.value.id, categoryForm)
-      ElMessage.success('分类已更新')
-    } else {
-      await createCategoryApi(categoryForm)
-      ElMessage.success('分类已创建')
-    }
-    categoryDialog.value = false
-    await loadCategories()
+    await runAction('category', categoryTarget.value?.id || 'new', async () => {
+      if (categoryTarget.value) {
+        await updateCategoryApi(categoryTarget.value.id, categoryForm)
+        ElMessage.success('分类已更新')
+      } else {
+        await createCategoryApi(categoryForm)
+        ElMessage.success('分类已创建')
+      }
+      categoryDialog.value = false
+      await loadCategories()
+    })
   } catch {
     ElMessage.error('操作失败')
   }
@@ -194,9 +242,11 @@ const saveCategory = async () => {
 
 const removeCategory = async (category) => {
   try {
-    await deleteCategoryApi(category.id)
-    ElMessage.success('分类已删除')
-    await loadCategories()
+    await runAction('category', category.id, async () => {
+      await deleteCategoryApi(category.id)
+      ElMessage.success('分类已删除')
+      await loadCategories()
+    })
   } catch {
     ElMessage.error('删除失败，该分类可能已被使用')
   }
@@ -218,16 +268,27 @@ const confirmHandover = async () => {
 
   if (!claimId || !itemId) return ElMessage.warning('交接记录缺少认领申请 ID 或物品 ID')
 
-  await createHandoverRecordApi({
-    claimId,
-    itemId,
-    method: handoverForm.method,
-    remark: handoverForm.remark
-  })
+  try {
+    await runAction('handover', claimId, async () => {
+      await createHandoverRecordApi({
+        claimId,
+        itemId,
+        method: handoverForm.method,
+        remark: handoverForm.remark
+      })
 
-  ElMessage.success('交接记录已保存')
-  handoverDialog.value = false
-  await load()
+      ElMessage.success('交接记录已保存')
+      handoverDialog.value = false
+      
+      // 后端可能未及时更新状态，前端临时从列表中移除
+      handovers.value = handovers.value.filter(item => item.id !== claimId)
+      
+      // 同时刷新数据
+      await load()
+    })
+  } catch {
+    ElMessage.error('保存交接记录失败')
+  }
 }
 
 const openTransfer = row => {
@@ -241,17 +302,25 @@ const confirmTransfer = async () => {
   if (!transferTarget.value) return
   if (!transferForm.handoverTarget.trim()) return ElMessage.warning('请填写移交对象')
 
-  await transferOverdueItemApi(transferTarget.value.id, {
-    handoverTarget: transferForm.handoverTarget,
-    remark: transferForm.remark
-  })
+  try {
+    await runAction('transfer', transferTarget.value.id, async () => {
+      await transferOverdueItemApi(transferTarget.value.id, {
+        handoverTarget: transferForm.handoverTarget,
+        remark: transferForm.remark
+      })
 
-  ElMessage.success('已登记移交')
-  transferDialog.value = false
-  await load()
+      ElMessage.success('已登记移交')
+      transferDialog.value = false
+      await load()
+    })
+  } catch {
+    ElMessage.error('登记移交失败')
+  }
 }
 
 const submitNotice = async () => {
+  if (isActionLoading('notice', 'publish')) return
+
   if (!notice.title.trim() || !notice.content.trim()) return ElMessage.warning('请填写公告标题和内容')
 
   const title = notice.title.trim()
@@ -265,16 +334,22 @@ const submitNotice = async () => {
     return ElMessage.warning('已存在相同标题和内容的公告，请勿重复发布')
   }
 
-  await createAnnouncementApi({
-    title: notice.title,
-    content: notice.content,
-    status: 'published'
-  })
+  try {
+    await runAction('notice', 'publish', async () => {
+      await createAnnouncementApi({
+        title: notice.title,
+        content: notice.content,
+        status: 'published'
+      })
 
-  ElMessage.success('公告已发布')
-  notice.title = ''
-  notice.content = ''
-  await load()
+      ElMessage.success('公告已发布')
+      notice.title = ''
+      notice.content = ''
+      await load()
+    })
+  } catch {
+    ElMessage.error('公告发布失败')
+  }
 }
 
 const openResolve = row => {
@@ -287,13 +362,19 @@ const confirmResolve = async () => {
   if (!resolveTarget.value) return
   if (!resolveText.value.trim()) return ElMessage.warning('请填写处理结论')
 
-  await resolveDisputeApi(resolveTarget.value.id, {
-    result: resolveText.value
-  })
+  try {
+    await runAction('resolve', resolveTarget.value.id, async () => {
+      await resolveDisputeApi(resolveTarget.value.id, {
+        result: resolveText.value
+      })
 
-  ElMessage.success('争议已结案')
-  resolveDialog.value = false
-  await load()
+      ElMessage.success('争议已结案')
+      resolveDialog.value = false
+      await load()
+    })
+  } catch {
+    ElMessage.error('保存结论失败')
+  }
 }
 
 onMounted(() => {
@@ -337,7 +418,7 @@ onMounted(() => {
         <section class="ops-list">
           <EmptyState v-if="!loading && !handovers.length" title="暂无待交接申请" desc="认领审核通过后，会进入这里进行线下或邮寄交接。" />
 
-          <div v-for="claim in handovers" :key="claim.id" class="ops-row glass-card handover-row">
+          <div v-for="claim in paginatedList(handovers, handoverPage)" :key="claim.id" class="ops-row glass-card handover-row">
             <LineIcon :name="getClaimMethod(claim) === 'delivery' ? 'truck' : 'user-check'" :tone="getClaimMethod(claim) === 'delivery' ? 'orange' : 'green'" />
 
             <div>
@@ -363,6 +444,16 @@ onMounted(() => {
   <el-button class="soft-action primary-action" @click="finishHandover(claim, 'delivery')">登记邮寄交接</el-button>
 </div>
           </div>
+
+          <div v-if="handovers.length > pageSize" class="pagination-bar">
+            <el-pagination
+              v-model:current-page="handoverPage"
+              :page-size="pageSize"
+              :total="handovers.length"
+              layout="prev, pager, next, jumper"
+              background
+            />
+          </div>
         </section>
       </el-tab-pane>
 
@@ -370,7 +461,7 @@ onMounted(() => {
         <section class="ops-list">
           <EmptyState v-if="!loading && !storageRows.length" title="暂无滞留物品" desc="超过保管期仍无人认领的物品会进入这里处理。" />
 
-          <div v-for="row in storageRows" :key="row.id" class="ops-row glass-card">
+          <div v-for="row in paginatedList(storageRows, storagePage)" :key="row.id" class="ops-row glass-card">
             <LineIcon name="package" :tone="statusTone(getDisposalStatus(row))" />
 
             <div>
@@ -387,6 +478,16 @@ onMounted(() => {
             <div class="actions">
               <el-button class="soft-action primary-action" :disabled="getDisposalStatus(row) === 'transferred'" @click="openTransfer(row)">登记移交</el-button>
             </div>
+          </div>
+
+          <div v-if="storageRows.length > pageSize" class="pagination-bar">
+            <el-pagination
+              v-model:current-page="storagePage"
+              :page-size="pageSize"
+              :total="storageRows.length"
+              layout="prev, pager, next, jumper"
+              background
+            />
           </div>
         </section>
       </el-tab-pane>
@@ -406,14 +507,20 @@ onMounted(() => {
               <el-input v-model="notice.content" type="textarea" :rows="4" placeholder="请输入公告内容" />
             </el-form-item>
 
-            <el-button type="primary" @click="submitNotice">发布公告</el-button>
+            <el-button
+              type="primary"
+              :loading="isActionLoading('notice', 'publish')"
+              @click="submitNotice"
+            >
+              发布公告
+            </el-button>
           </el-form>
         </div>
 
         <section class="ops-list after">
           <EmptyState v-if="!loading && !announcements.length" title="暂无公告" desc="发布平台公告后，会在这里展示公告记录。" />
 
-          <div v-for="item in announcements" :key="item.id" class="ops-row glass-card">
+          <div v-for="item in paginatedList(announcements, announcementPage)" :key="item.id" class="ops-row glass-card">
             <LineIcon name="megaphone" tone="blue" />
 
             <div>
@@ -427,6 +534,16 @@ onMounted(() => {
               <small>{{ getAnnouncementCreatedAt(item) }}</small>
             </div>
           </div>
+
+          <div v-if="announcements.length > pageSize" class="pagination-bar">
+            <el-pagination
+              v-model:current-page="announcementPage"
+              :page-size="pageSize"
+              :total="announcements.length"
+              layout="prev, pager, next, jumper"
+              background
+            />
+          </div>
         </section>
       </el-tab-pane>
 
@@ -434,7 +551,7 @@ onMounted(() => {
         <section class="ops-list">
           <EmptyState v-if="!loading && !disputes.length" title="暂无争议记录" desc="认领过程发生争议或领错归还时，会进入这里处理。" />
 
-          <div v-for="item in disputes" :key="item.id" class="ops-row glass-card">
+          <div v-for="item in paginatedList(disputes, disputePage)" :key="item.id" class="ops-row glass-card">
             <LineIcon name="alert" :tone="item.status === 'resolved' ? 'green' : 'red'" />
 
             <div>
@@ -454,6 +571,16 @@ onMounted(() => {
               <el-button class="soft-action success-action" :disabled="item.status === 'resolved'" @click="openResolve(item)">填写结论</el-button>
             </div>
           </div>
+
+          <div v-if="disputes.length > pageSize" class="pagination-bar">
+            <el-pagination
+              v-model:current-page="disputePage"
+              :page-size="pageSize"
+              :total="disputes.length"
+              layout="prev, pager, next, jumper"
+              background
+            />
+          </div>
         </section>
       </el-tab-pane>
 
@@ -465,7 +592,7 @@ onMounted(() => {
 
           <EmptyState v-if="!categories.length" title="暂无分类" desc="添加物品分类后，用户发布时可选择对应分类。" />
 
-          <div v-for="item in categories" :key="item.id" class="ops-row glass-card">
+          <div v-for="item in paginatedList(categories, categoryPage)" :key="item.id" class="ops-row glass-card">
             <LineIcon name="package" tone="blue" />
 
             <div>
@@ -477,8 +604,25 @@ onMounted(() => {
 
             <div class="actions">
   <el-button class="soft-action primary-action" @click="openCategoryDialog(item)">编辑</el-button>
-  <el-button class="soft-action danger-action" @click="removeCategory(item)">删除</el-button>
+  <el-button
+    class="soft-action danger-action"
+    :loading="isActionLoading('category', item.id)"
+    :disabled="isActionLoading('category', item.id)"
+    @click="removeCategory(item)"
+  >
+    删除
+  </el-button>
 </div>
+          </div>
+
+          <div v-if="categories.length > pageSize" class="pagination-bar">
+            <el-pagination
+              v-model:current-page="categoryPage"
+              :page-size="pageSize"
+              :total="categories.length"
+              layout="prev, pager, next, jumper"
+              background
+            />
           </div>
         </section>
       </el-tab-pane>
@@ -502,7 +646,13 @@ onMounted(() => {
 
       <template #footer>
         <el-button @click="handoverDialog = false">取消</el-button>
-        <el-button type="success" @click="confirmHandover">确认完成</el-button>
+        <el-button
+          type="success"
+          :loading="!!handoverTarget && isActionLoading('handover', handoverTarget.id)"
+          @click="confirmHandover"
+        >
+          确认完成
+        </el-button>
       </template>
     </el-dialog>
 
@@ -519,7 +669,13 @@ onMounted(() => {
 
       <template #footer>
         <el-button @click="transferDialog = false">取消</el-button>
-        <el-button type="primary" @click="confirmTransfer">确认移交</el-button>
+        <el-button
+          type="primary"
+          :loading="!!transferTarget && isActionLoading('transfer', transferTarget.id)"
+          @click="confirmTransfer"
+        >
+          确认移交
+        </el-button>
       </template>
     </el-dialog>
 
@@ -528,7 +684,13 @@ onMounted(() => {
 
       <template #footer>
         <el-button @click="resolveDialog = false">取消</el-button>
-        <el-button type="primary" @click="confirmResolve">保存结论</el-button>
+        <el-button
+          type="primary"
+          :loading="!!resolveTarget && isActionLoading('resolve', resolveTarget.id)"
+          @click="confirmResolve"
+        >
+          保存结论
+        </el-button>
       </template>
     </el-dialog>
 
@@ -545,7 +707,13 @@ onMounted(() => {
 
       <template #footer>
         <el-button @click="categoryDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveCategory">保存</el-button>
+        <el-button
+          type="primary"
+          :loading="isActionLoading('category', categoryTarget?.id || 'new')"
+          @click="saveCategory"
+        >
+          保存
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -756,6 +924,12 @@ onMounted(() => {
   border: none;
   background: linear-gradient(135deg, #16a34a, #00b894);
   box-shadow: 0 10px 24px rgba(0, 184, 148, .18);
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0 10px;
 }
 
 @media (max-width: 920px) {

@@ -92,9 +92,14 @@ const startCountdown = () => {
 const sendCode = async () => {
   if (countdown.value > 0 || codeLoading.value) return
 
-  await formRef.value.validateField('email')
-
   codeLoading.value = true
+
+  try {
+    await formRef.value.validateField('email')
+  } catch {
+    codeLoading.value = false
+    return
+  }
 
   try {
     await sendEmailCodeApi(form.email, 'register')
@@ -110,10 +115,10 @@ const sendCode = async () => {
 const submit = async () => {
   if (loading.value) return
 
-  await formRef.value.validate()
   loading.value = true
 
   try {
+    await formRef.value.validate()
     await userStore.register(form)
     ElMessage.success('注册成功')
     router.push('/home')

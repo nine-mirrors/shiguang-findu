@@ -5,9 +5,11 @@ import { ElMessage } from 'element-plus'
 import { getItemDetailApi } from '@/api/item'
 import { createClaimApi } from '@/api/claim'
 import { formatDateTime } from '@/utils/format'
+import { storage } from '@/utils/storage'
 import PhotoUploader from '@/components/PhotoUploader.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import AppLoading from '@/components/AppLoading.vue'
+import { ElImageViewer } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,6 +18,8 @@ const pageLoading = ref(true)
 const item = ref(null)
 const formRef = ref()
 const loading = ref(false)
+const imageViewerVisible = ref(false)
+const imageViewerIndex = ref(0)
 
 const form = reactive({
   itemId: route.params.id,
@@ -35,10 +39,16 @@ const itemType = computed(() => item.value?.type || 'found')
 const isFoundItem = computed(() => itemType.value === 'found')
 
 const availableClaimTypes = computed(() => {
-  return [
+  const types = [
     { label: '我要认领', value: 'claim' },
     { label: '我有线索', value: 'clue' }
   ]
+
+  if (route.query.type === 'wrong_return') {
+    types.push({ label: '领错归还', value: 'wrong_return' })
+  }
+
+  return types
 })
 
 const getFullImageUrl = url => {
@@ -164,7 +174,22 @@ const rules = {
     }
   ],
   phone: [
-    { required: true, message: '请填写联系电话', trigger: 'blur' }
+    { required: true, message: '请填写联系电话', trigger: 'blur' },
+    {
+      validator: (_, value, callback) => {
+        if (!value) {
+          callback()
+          return
+        }
+        const phoneRegex = /^1[3-9]\d{9}$/
+        if (!phoneRegex.test(value)) {
+          callback(new Error('请输入有效的11位手机号码'))
+          return
+        }
+        callback()
+      },
+      trigger: 'blur'
+    }
   ]
 }
 
@@ -196,7 +221,25 @@ const loadItem = async () => {
       return
     }
 
-    form.claimType = itemType.value === 'found' ? 'claim' : 'clue'
+    if (route.query.type === 'wrong_return') {
+      form.claimType = 'wrong_return'
+    } else {
+      form.claimType = itemType.value === 'found' ? 'claim' : 'clue'
+    }
+
+    if (route.query.proofText) {
+      form.proofText = route.query.proofText
+    }
+    if (route.query.proofImages) {
+      try {
+        const images = JSON.parse(route.query.proofImages)
+        if (Array.isArray(images)) {
+          form.proofImages = images
+        }
+      } catch {
+        // ignore parse error
+      }
+    }
   } catch {
     ElMessage.error('加载物品信息失败')
   } finally {
@@ -207,16 +250,16 @@ const loadItem = async () => {
 const submit = async () => {
   if (loading.value) return
 
-  await formRef.value.validate()
-
-  if (!form.agree) {
-    ElMessage.warning('请先阅读并同意用户须知与平台规则')
-    return
-  }
-
   loading.value = true
 
   try {
+    await formRef.value.validate()
+
+    if (!form.agree) {
+      ElMessage.warning('请先阅读并同意用户须知与平台规则')
+      return
+    }
+
     await createClaimApi(form)
     ElMessage.success('申请已提交，等待管理员核验')
     router.push('/my-posts?tab=claims')
@@ -251,28 +294,6 @@ onMounted(loadItem)
         <h1>{{ heroTitle }}</h1>
 
         <p>{{ heroDesc }}</p>
-      </div>
-
-      <div class="claim-item-card">
-        <div class="claim-item-info">
-          <b>{{ item.name }}</b>
-          <span>{{ item.location }} · {{ itemTime }}</span>
-          <small>{{ storageText }}</small>
-        </div>
-
-        <div class="claim-item-images" :class="`count-${Math.min(itemImages.length, 3)}`">
-          <template v-if="itemImages.length">
-            <img
-              v-for="(url, idx) in itemImages.slice(0, 3)"
-              :key="idx"
-              :src="url"
-              :alt="`平台物品照片 ${idx + 1}`"
-            />
-          </template>
-          <div v-else class="claim-item-fallback">
-            {{ itemCategory }}
-          </div>
-        </div>
       </div>
     </section>
 
@@ -407,30 +428,39 @@ onMounted(loadItem)
       <aside class="side-stack">
         <div class="glass-card policy-card">
           <LineIcon name="shield" tone="purple" />
-
           <h3>防冒领机制</h3>
-
           <p>平台会隐藏敏感信息，并通过细节说明、辅助照片和管理员核验降低冒领风险。</p>
         </div>
 
         <div class="glass-card policy-card">
           <LineIcon name="truck" tone="orange" />
-
           <h3>身份核验</h3>
-
           <p>线下领取需出示学生证或校园身份凭证；邮寄领取需先核验注册邮箱、认领联系电话、校园身份信息和物品归属。</p>
         </div>
 
         <div class="glass-card policy-card">
           <LineIcon name="rotate" tone="green" />
-
           <h3>领错归还</h3>
-
           <p>如果领取后发现物品并非本人遗失物，应及时联系管理员并交回处理。</p>
+        </div>
+
+        <div class="glass-card item-image-card">
+          <div class="item-image-preview" @click="imageViewerVisible = true">
+            <img v-if="itemImages.length" :src="itemImages[0]" :alt="item.name" />
+            <div v-else class="item-image-fallback">{{ itemCategory }}</div>
+            <div class="image-overlay">
+              <LineIcon name="search" tone="white" />
+              <span>点击预览</span>
+            </div>
+          </div>
         </div>
       </aside>
     </section>
   </div>
+
+  <el-dialog v-model="imageViewerVisible" title="图片预览" width="80%" destroy-on-close>
+    <img :src="itemImages[imageViewerIndex]" style="width: 100%; max-height: 70vh; object-fit: contain;" />
+  </el-dialog>
 </template>
 
 <style scoped>
@@ -499,6 +529,12 @@ onMounted(loadItem)
   grid-template-columns: 1fr;
 }
 
+.claim-item-images {
+  height: 200px;
+  min-height: 200px;
+  max-height: 200px;
+}
+
 .claim-item-images img {
   width: 100%;
   height: 100%;
@@ -506,6 +542,12 @@ onMounted(loadItem)
   border-radius: 16px;
   background: #f8fbff;
   display: block;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.claim-item-images img:hover {
+  transform: scale(1.02);
 }
 
 .claim-item-fallback {
@@ -656,6 +698,62 @@ onMounted(loadItem)
   margin: 0;
   color: var(--muted);
   line-height: 1.75;
+}
+
+.item-image-card {
+  padding: 16px;
+}
+
+.item-image-preview {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  border-radius: 18px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #f8fbff;
+}
+
+.item-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.item-image-fallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: rgba(79, 124, 255, .08);
+  color: var(--primary-strong);
+  font-weight: 900;
+}
+
+.image-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, .4);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.item-image-preview:hover .image-overlay {
+  opacity: 1;
+}
+
+.image-overlay :deep(.line-icon) {
+  width: 32px;
+  height: 32px;
 }
 
 @media (max-width: 900px) {
