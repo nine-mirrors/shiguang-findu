@@ -298,7 +298,8 @@ const loadCategories = async () => {
 const submit = async () => {
   if (loading.value) return
 
-  await formRef.value.validate()
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
 
   if (isUsingFallbackCategories.value) {
     ElMessage.warning('分类接口暂未加载成功，请稍后重试')
@@ -352,6 +353,8 @@ const submit = async () => {
     ElMessage.success('提交成功，已进入待审核状态')
     reset(true)
     router.push('/my-posts')
+  } catch {
+    // 错误提示已在 request.js 拦截器中统一处理
   } finally {
     loading.value = false
   }
@@ -551,7 +554,7 @@ watch(
           </div>
 
           <div class="submit-line">
-            <el-button @click="reset">{{ isEditMode ? '恢复原始' : '重置' }}</el-button>
+            <el-button @click="reset()">{{ isEditMode ? '恢复原始' : '重置' }}</el-button>
             <el-button type="primary" :loading="loading" @click="submit">
               {{ isEditMode ? '保存修改' : '提交审核' }}
             </el-button>

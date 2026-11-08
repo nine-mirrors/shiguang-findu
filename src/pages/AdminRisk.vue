@@ -120,8 +120,8 @@ const getReleaseReason = item => item.release_reason || item.releaseReason || ''
 const getReleasedBy = item => item.released_by || item.releasedBy || ''
 
 const getVerifyUser = item => item.user || null
-const getVerifyUserEmail = item => getVerifyUser(item)?.email || '邮箱未返回'
-const getVerifyUserName = item => getVerifyUser(item)?.username || getVerifyUser(item)?.name || `用户 #${item.user_id || '-'}`
+const getVerifyUserEmail = item => item.email || getUser(item)?.email || getVerifyUser(item)?.email || '邮箱未返回'
+const getVerifyUserName = item => item.username || item.real_name || item.realName || getUser(item)?.username || getVerifyUser(item)?.username || `用户 #${item.user_id || item.userId || '-'}`
 const getVerifyStatus = item => item.status || 'pending'
 const getVerifyLevel = item => item.level || 'basic'
 const getVerifyReason = item => item.reject_reason || item.rejectReason || ''
@@ -274,7 +274,7 @@ const filteredVerifications = computed(() => {
     if (!matchStatus || !matchLevel) return false
     if (!keyword) return true
 
-    return `${item.real_name || ''}${item.student_no || ''}${item.phone || ''}${getVerifyUserEmail(item)}`.toLowerCase().includes(keyword)
+    return `${item.real_name || item.realName || ''}${item.student_no || item.studentNo || ''}${item.phone || ''}${getVerifyUserEmail(item)}`.toLowerCase().includes(keyword)
   })
 })
 
@@ -568,16 +568,16 @@ onMounted(load)
 
             <div class="verify-main">
               <div class="title">
-                <b>{{ item.real_name || '未填写姓名' }}</b>
+                <b>{{ item.real_name || item.realName || '未填写姓名' }}</b>
                 <el-tag>{{ verifyLevelText(getVerifyLevel(item)) }}</el-tag>
                 <el-tag :type="verifyStatusType(getVerifyStatus(item))">{{ verifyStatusText(getVerifyStatus(item)) }}</el-tag>
                 <el-tag>{{ faceStatusText(getFaceStatus(item)) }}</el-tag>
               </div>
 
               <p>
-                学号 / 工号：{{ item.student_no || '未填写' }}
+                学号 / 工号：{{ item.student_no || item.studentNo || '未填写' }}
                 · 手机号：{{ item.phone || '未填写' }}
-                · 证件后四位：{{ item.id_card_last4 || '未填写' }}
+                · 证件后四位：{{ item.id_card_last4 || item.idCardLast4 || '未填写' }}
               </p>
 
               <small>

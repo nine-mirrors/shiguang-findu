@@ -162,7 +162,8 @@ async function loadVerification() {
 async function submit() {
   if (submitting.value) return
 
-  await formRef.value.validate()
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
 
   submitting.value = true
 

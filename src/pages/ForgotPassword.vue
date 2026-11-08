@@ -85,13 +85,17 @@ const sendCode = async () => {
 const submit = async () => {
   if (loading.value) return
 
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
+
   loading.value = true
 
   try {
-    await formRef.value.validate()
     await forgotPasswordApi(form)
     ElMessage.success('密码重置成功，请重新登录')
     router.push('/login')
+  } catch {
+    // 错误提示已在 request.js 拦截器中统一处理
   } finally {
     loading.value = false
   }

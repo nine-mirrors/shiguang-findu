@@ -947,8 +947,17 @@ onMounted(() => {
 }
 
 @media (max-width: 560px) {
+  /* 单列时用 minmax(0,1fr) 兜住 min-content，避免标签栏把整页撑到 476px 后被裁切 */
+  .ops-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .ops-summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-tabs {
+    min-width: 0;
   }
 }
 </style>

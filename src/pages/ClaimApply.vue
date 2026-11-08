@@ -250,21 +250,22 @@ const loadItem = async () => {
 const submit = async () => {
   if (loading.value) return
 
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  if (!form.agree) {
+    ElMessage.warning('请先阅读并同意用户须知与平台规则')
+    return
+  }
+
   loading.value = true
 
   try {
-    await formRef.value.validate()
-
-    if (!form.agree) {
-      ElMessage.warning('请先阅读并同意用户须知与平台规则')
-      return
-    }
-
     await createClaimApi(form)
     ElMessage.success('申请已提交，等待管理员核验')
     router.push('/my-posts?tab=claims')
   } catch {
-    ElMessage.error('提交申请失败，请重试')
+    // 错误提示已在 request.js 拦截器中统一处理
   } finally {
     loading.value = false
   }
