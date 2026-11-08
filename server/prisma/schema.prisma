@@ -1,0 +1,216 @@
+// FindU 校园失物招领 —— Prisma schema
+// 默认使用 SQLite，零配置即可启动。
+// 切换 MySQL：把 provider 改为 "mysql"，并修改 .env 中的 DATABASE_URL 即可，
+// 本文件其余字段均为 Prisma 通用类型，无需改动。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                Int            @id @default(autoincrement())
+  username          String
+  email             String         @unique
+  password          String
+  role              String         @default("student") // student | admin
+  avatar            String         @default("")
+  phone             String         @default("")
+  studentNo         String         @default("")
+  verificationLevel String         @default("basic") // none | basic | full
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  items             Item[]
+  claims            Claim[]
+  favorites         Favorite[]
+  notifications     Notification[]
+  verifications     Verification[]
+  blacklists        Blacklist[]
+
+  @@index([role])
+}
+
+model Category {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  icon      String   @default("")
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  items     Item[]
+}
+
+model Item {
+  id            Int            @id @default(autoincrement())
+  userId        Int
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          String // lost | found
+  name          String
+  categoryId    Int?
+  category      Category?      @relation(fields: [categoryId], references: [id])
+  location      String         @default("")
+  happenTime    String         @default("")
+  description   String         @default("")
+  contact       String         @default("")
+  image         String         @default("")
+  images        String         @default("[]") // JSON 数组字符串，SQLite 不支持 String[]
+  visibility    String         @default("public") // public | private
+  isValuable    Boolean        @default(false)
+  claimHint     String         @default("")
+  storageCode   String         @default("")
+  retentionDays Int            @default(30)
+  status        String         @default("open") // open | claiming | done | overdue
+  auditStatus   String         @default("pending") // pending | approved | rejected
+  rejectReason  String         @default("")
+  auditedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  claims        Claim[]
+  favorites     Favorite[]
+  storage       StorageRecord?
+  disputes      Dispute[]
+
+  @@index([auditStatus, status])
+  @@index([type])
+  @@index([categoryId])
+  @@index([userId])
+}
+
+model Claim {
+  id                Int       @id @default(autoincrement())
+  itemId            Int
+  item              Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  userId            Int
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  claimantName      String    @default("")
+  claimType         String    @default("claim") // claim | wrong_return
+  method            String    @default("offline") // offline | mail
+  proofText         String    @default("")
+  proofImage        String    @default("")
+  deliveryAddress   String    @default("")
+  phone             String    @default("")
+  status            String    @default("pending") // pending | approved | rejected | handover_pending | completed | wrong_return_pending
+  progress          String    @default("待审核")
+  ownerAudit        String    @default("pending")
+  adminAudit        String    @default("pending")
+  handoverStatus    String    @default("waiting")
+  score             Int       @default(0)
+  auditRemark       String    @default("")
+  wrongReturnReason String    @default("")
+  handoverMethod    String    @default("")
+  handoverRemark    String    @default("")
+  auditedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  disputes          Dispute[]
+
+  @@index([status])
+  @@index([userId])
+  @@index([itemId])
+}
+
+model Favorite {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  itemId    Int
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, itemId])
+  @@index([itemId])
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int? // null 表示全站广播
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   @default("system") // system | audit | claim | security | announcement | match
+  title     String
+  content   String
+  relatedId Int?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model Verification {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level        String   @default("basic") // basic | full
+  realName     String   @default("")
+  studentNo    String   @default("")
+  phone        String   @default("")
+  status       String   @default("pending") // pending | approved | rejected
+  rejectReason String   @default("")
+  auditedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Announcement {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String
+  status    String   @default("published") // published | draft
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+model StorageRecord {
+  id              Int       @id @default(autoincrement())
+  itemId          Int       @unique
+  item            Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  storageCode     String    @default("")
+  storageLocation String    @default("")
+  expireAt        DateTime
+  disposalStatus  String    @default("normal") // normal | near_expired | transferred
+  handoverTarget  String    @default("")
+  handoverTime    DateTime?
+  remark          String    @default("")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Dispute {
+  id            Int       @id @default(autoincrement())
+  itemId        Int?
+  item          Item?     @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  claimId       Int?
+  claim         Claim?    @relation(fields: [claimId], references: [id], onDelete: SetNull)
+  claimantName  String    @default("")
+  reason        String    @default("")
+  status        String    @default("processing") // processing | resolved
+  result        String    @default("")
+  resolvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([status])
+}
+
+model Blacklist {
+  id            Int       @id @default(autoincrement())
+  userId        Int?
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  username      String    @default("")
+  reason        String    @default("")
+  level         String    @default("blocked") // warning | blocked | all
+  limitType     String    @default("all") // publish | claim | all
+  status        String    @default("active") // active | inactive
+  startedAt     DateTime  @default(now())
+  expiresAt     DateTime?
+  releaseReason String    @default("")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, status])
+}

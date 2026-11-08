@@ -1,12 +1,11 @@
 # dependencies
-node_modules
-server/node_modules
+node_modules/
 
-# backend runtime
-server/uploads
-server/.env
-server/prisma/*.db
-server/prisma/*.db-journal
+# backend runtime: 上传文件保留目录占位，开发数据库不入库
+server/uploads/*
+!server/uploads/.gitkeep
+*.db
+*.db-journal
 
 # build output
 dist
