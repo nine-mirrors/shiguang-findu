@@ -25,6 +25,21 @@ const activeTab = ref('overview')
 const normalizeAnalytics = res => {
   const payload = res?.data || res || {}
 
+  // 后端已返回整理好的扁平结构，直接使用，避免被下面的旧字段兼容逻辑覆盖成空值
+  if (payload.successRate !== undefined || Array.isArray(payload.hotLocations) || Array.isArray(payload.claimStages)) {
+    return {
+      activeUsers: Number(payload.activeUsers) || 0,
+      successRate: Number(payload.successRate) || 0,
+      publishFrequency: payload.publishFrequency || '0/日',
+      riskUsers: Number(payload.riskUsers) || 0,
+      hotLocations: (payload.hotLocations || []).filter(item => Number(item.value) > 0),
+      claimStages: (payload.claimStages || []).filter(stage => Number(stage.value) > 0),
+      itemStatusStats: payload.itemStatusStats || [],
+      dailyTrend: payload.dailyTrend || [],
+      overview: {}
+    }
+  }
+
   const overview = payload.overview || {}
   const claimsByStatus = payload.claims_by_status || {}
   const itemsByStatus = payload.items_by_status || {}

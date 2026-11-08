@@ -1,5 +1,12 @@
 # dependencies
 node_modules
+server/node_modules
+
+# backend runtime
+server/uploads
+server/.env
+server/prisma/*.db
+server/prisma/*.db-journal
 
 # build output
 dist

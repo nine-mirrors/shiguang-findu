@@ -87,6 +87,17 @@ const redirectToForbidden = () => {
   window.location.href = '/403'
 }
 
+let lastNetworkErrorAt = 0
+
+const notifyNetworkError = () => {
+  const now = Date.now()
+
+  if (now - lastNetworkErrorAt < 3000) return
+
+  lastNetworkErrorAt = now
+  ElMessage.error('网络连接失败，请检查网络后重试')
+}
+
 request.interceptors.request.use(
   config => {
     const token = storage.get('token', '')
@@ -122,9 +133,7 @@ request.interceptors.response.use(
     const message = validationMessage || responseData?.message || error.message || '请求失败'
 
     if (isNetworkError(error)) {
-      if (window.location.pathname !== '/network-error') {
-        router.push('/network-error')
-      }
+      notifyNetworkError()
       return Promise.reject(error)
     } else if (status === 401) {
       const url = normalizeUrl(error.config?.url)

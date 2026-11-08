@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import AppLoading from '@/components/AppLoading.vue'
 import { getCategoriesApi } from '@/api/category'
 import { getItemsApi } from '@/api/item'
@@ -13,6 +14,7 @@ const route = useRoute()
 const userStore = useUserStore()
 
 const loading = ref(true)
+const loadError = ref(false)
 const items = ref([])
 const favoriteIds = ref(new Set())
 const categoryList = ref([])
@@ -154,8 +156,12 @@ function buildParams() {
 }
 
 async function loadCategories() {
-  const res = await getCategoriesApi()
-  categoryList.value = normalizeCategories(res)
+  try {
+    const res = await getCategoriesApi()
+    categoryList.value = normalizeCategories(res)
+  } catch {
+    categoryList.value = []
+  }
 }
 
 async function loadFavorites() {
@@ -176,6 +182,7 @@ async function loadFavorites() {
 
 async function load() {
   loading.value = true
+  loadError.value = false
   page.value = 1
 
   try {
@@ -184,6 +191,9 @@ async function load() {
     items.value = normalizeItems(res)
 
     await loadFavorites()
+  } catch {
+    items.value = []
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -282,8 +292,15 @@ watch(() => route.query, syncRoute)
       <span>当前排序：发布时间倒序</span>
     </div>
 
+    <ErrorState
+      v-if="!loading && loadError"
+      title="物品列表加载失败"
+      desc="请确认后端服务已启动（默认 http://localhost:4000），或稍后重试。"
+      @retry="load"
+    />
+
     <EmptyState
-      v-if="!loading && !items.length"
+      v-else-if="!loading && !items.length"
       title="暂时没有符合条件的信息"
       desc="可以更换关键词或筛选条件，也可以发布一条新的失物 / 招领信息。"
       button-text="去发布"

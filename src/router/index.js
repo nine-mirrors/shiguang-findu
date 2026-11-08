@@ -44,6 +44,11 @@ const router = createRouter({
       component: () => import('@/pages/Forbidden.vue')
     },
     {
+      path: '/network-error',
+      name: 'NetworkError',
+      component: () => import('@/pages/NetworkError.vue')
+    },
+    {
       path: '/',
       component: () => import('@/layouts/UserLayout.vue'),
       meta: { userArea: true },

@@ -1,7 +1,7 @@
 <script setup>
-import { useRouter } from 'vue-router'
-
-const router = useRouter()
+const reload = () => {
+  window.location.reload()
+}
 </script>
 
 <template>
@@ -11,7 +11,7 @@ const router = useRouter()
       <h1>网络连接失败</h1>
       <p>无法连接到服务器，请检查网络状态或联系管理员。</p>
       <div class="actions">
-        <el-button type="primary" @click="window.location.reload()">
+        <el-button type="primary" @click="reload">
           刷新页面
         </el-button>
         <el-button @click="$router.push('/home')">

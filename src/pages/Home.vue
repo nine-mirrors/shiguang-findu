@@ -4,14 +4,16 @@ import { useRouter } from 'vue-router'
 import StatCard from '@/components/StatCard.vue'
 import ItemCard from '@/components/ItemCard.vue'
 import LineIcon from '@/components/LineIcon.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import { getCategoriesApi } from '@/api/category'
-import { getItemsApi, getHomeStatisticsApi } from '@/api/item'
+import { getItemsApi } from '@/api/item'
 
 const router = useRouter()
 
 const keyword = ref('')
 const items = ref([])
 const categoryList = ref([])
+const loadFailed = ref(false)
 
 const dashboard = ref({
   total: 0,
@@ -104,82 +106,41 @@ async function loadCategories() {
 }
 
 async function loadHomeData() {
-  // 调用专门的统计接口获取首页数据
   try {
-    const [statsRes, itemsRes] = await Promise.all([
-      getHomeStatisticsApi(),
-      getItemsApi({ page: 1, page_size: 100 })
-    ])
-    
-    const statsData = statsRes?.data || statsRes
-    items.value = normalizeItems(itemsRes)
-    
-    // 从物品列表计算地点和分类统计
-    const approvedItems = items.value.filter(item => {
-      const auditStatus = item.auditStatus || item.audit_status || 'approved'
-      return auditStatus === 'approved'
-    })
-    
-    const locationMap = approvedItems.reduce((map, item) => {
-      const location = item.location || '未知地点'
-      map[location] = (map[location] || 0) + 1
-      return map
-    }, {})
-    
-    const categoryMap = approvedItems.reduce((map, item) => {
-      const category = typeof item.category === 'string'
-        ? item.category
-        : item.category?.name || item.category_name || '其他'
-      map[category] = (map[category] || 0) + 1
-      return map
-    }, {})
-    
-    dashboard.value = {
-      total: statsData?.total_items || statsData?.信息总数 || 0,
-      done: statsData?.success_found || statsData?.已帮助找回 || 0,
-      pending: statsData?.pending_audit || statsData?.待审核 || 0,
-      locations: Object.entries(locationMap).map(([name, value]) => ({ name, value })),
-      categories: Object.entries(categoryMap).map(([name, value]) => ({ name, value }))
-    }
-    console.log('Home - dashboard from API:', dashboard.value)
-  } catch (error) {
-    console.error('获取首页数据失败:', error)
-    // 如果失败，使用原来的方式计算
     const res = await getItemsApi({
       page: 1,
       page_size: 100
     })
+
     items.value = normalizeItems(res)
     dashboard.value = buildDashboard(items.value)
+    loadFailed.value = false
+  } catch (error) {
+    console.error('获取首页数据失败:', error)
+    loadFailed.value = true
   }
 }
 
+async function retryLoad() {
+  loadFailed.value = false
+  await Promise.all([
+    loadCategories(),
+    loadHomeData()
+  ])
+}
+
 const buildDashboard = list => {
-  console.log('buildDashboard - list length:', list.length)
-  console.log('buildDashboard - first item:', list[0])
-  
   const approvedItems = list.filter(item => {
     const auditStatus = item.auditStatus || item.audit_status || item.audit || 'approved'
-    const isApproved = auditStatus === 'approved' || auditStatus === 'pass'
-    if (item.id === 7) {
-      console.log('Item 7 - auditStatus:', auditStatus, 'isApproved:', isApproved)
-    }
-    return isApproved
+
+    return auditStatus === 'approved' || auditStatus === 'pass'
   })
-  
-  console.log('buildDashboard - approvedItems length:', approvedItems.length)
-  console.log('buildDashboard - approvedItems ids:', approvedItems.map(i => i.id))
 
   const doneItems = approvedItems.filter(item => {
     const itemStatus = item.status || item.item_status || ''
-    const isDone = ['done', 'completed', 'closed', 'resolved'].includes(itemStatus)
-    if (item.id === 7) {
-      console.log('Item 7 - status:', itemStatus, 'isDone:', isDone)
-    }
-    return isDone
+
+    return ['done', 'completed', 'closed', 'resolved'].includes(itemStatus)
   })
-  console.log('buildDashboard - doneItems:', doneItems.map(i => ({ id: i.id, status: i.status })))
-  
   const done = doneItems.length
   const pending = list.filter(item => (item.auditStatus || item.audit_status) === 'pending').length
 
@@ -293,7 +254,14 @@ onMounted(async () => {
         <el-button @click="$router.push('/items')">查看全部</el-button>
       </div>
 
-      <TransitionGroup name="list" tag="div" class="item-grid">
+      <ErrorState
+        v-if="loadFailed"
+        title="首页数据加载失败"
+        desc="请确认后端服务已启动（默认 http://localhost:4000），或稍后重试。"
+        @retry="retryLoad"
+      />
+
+      <TransitionGroup v-else name="list" tag="div" class="item-grid">
         <ItemCard v-for="item in latest" :key="item.id" :item="item" />
       </TransitionGroup>
     </section>
