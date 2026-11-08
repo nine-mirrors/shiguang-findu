@@ -7,6 +7,7 @@ import {
   ElConfigProvider,
   ElDatePicker,
   ElDialog,
+  ElDrawer,
   ElDropdown,
   ElDropdownItem,
   ElDropdownMenu,
@@ -34,6 +35,7 @@ import 'element-plus/es/components/checkbox/style/css'
 import 'element-plus/es/components/config-provider/style/css'
 import 'element-plus/es/components/date-picker/style/css'
 import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/drawer/style/css'
 import 'element-plus/es/components/dropdown/style/css'
 import 'element-plus/es/components/dropdown-item/style/css'
 import 'element-plus/es/components/dropdown-menu/style/css'
@@ -68,6 +70,7 @@ const elementComponents = [
   ElConfigProvider,
   ElDatePicker,
   ElDialog,
+  ElDrawer,
   ElDropdown,
   ElDropdownItem,
   ElDropdownMenu,

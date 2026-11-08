@@ -1,10 +1,10 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDateTime } from '@/utils/format'
 import LineIcon from '@/components/LineIcon.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import EmptyState from '@/components/EmptyState.vue'
-import AppLoading from '@/components/AppLoading.vue'
 import {
   createAnnouncementApi,
   createHandoverRecordApi,
@@ -29,7 +29,6 @@ const props = defineProps({
   }
 })
 
-const pageLoading = ref(false)
 const active = ref(props.tab)
 const handovers = ref([])
 const storageRows = ref([])
@@ -37,7 +36,12 @@ const announcements = ref([])
 const disputes = ref([])
 const categories = ref([])
 const loading = ref(false)
+const loaded = ref(false)
+const error = ref('')
 const actionLoading = ref(new Set())
+
+const firstLoading = computed(() => loading.value && !loaded.value)
+const tileValue = value => (loaded.value && !error.value ? value : '—')
 
 // 分页
 const handoverPage = ref(1)
@@ -78,6 +82,11 @@ const runAction = async (scope, id, task) => {
     setActionLoading(scope, id, false)
   }
 }
+
+const isDialogCancel = error => error === 'cancel' || error === 'close'
+
+const categoryLoaded = ref(false)
+const categoryError = ref('')
 
 const categoryDialog = ref(false)
 const categoryTarget = ref(null)
@@ -169,6 +178,8 @@ const statusTone = status => {
 }
 
 const loadCategories = async () => {
+  categoryError.value = ''
+
   try {
     const res = await getCategoriesApi()
     const list = normalizeList(res)
@@ -177,7 +188,10 @@ const loadCategories = async () => {
       return { id: item.id, name: item.name, sort: item.sort ?? 0 }
     }).sort((a, b) => a.sort - b.sort)
   } catch {
+    categoryError.value = '分类列表加载失败，请稍后重试。'
     categories.value = []
+  } finally {
+    categoryLoaded.value = true
   }
 }
 
@@ -186,9 +200,15 @@ const paginatedList = (list, page) => {
   return list.slice(start, start + pageSize.value)
 }
 
+// 删除或处理记录后当前页可能超出总页数，自动回落到最后一页
+const clampPage = (pageRef, total) => {
+  const maxPage = Math.max(1, Math.ceil(total / pageSize.value))
+  if (pageRef.value > maxPage) pageRef.value = maxPage
+}
+
 const load = async () => {
   loading.value = true
-  pageLoading.value = true
+  error.value = ''
 
   try {
     const [claimRes, storageRes, announcementRes, disputeRes] = await Promise.all([
@@ -202,11 +222,12 @@ const load = async () => {
     storageRows.value = normalizeList(storageRes)
     announcements.value = normalizeList(announcementRes)
     disputes.value = normalizeList(disputeRes)
+    loaded.value = true
   } catch {
+    error.value = '运营数据加载失败，请检查网络连接后重试。'
     ElMessage.error('加载运营数据失败')
   } finally {
     loading.value = false
-    pageLoading.value = false
   }
 }
 
@@ -240,15 +261,27 @@ const saveCategory = async () => {
   }
 }
 
-const removeCategory = async (category) => {
+const removeCategory = async category => {
   try {
     await runAction('category', category.id, async () => {
+      await ElMessageBox.confirm(
+        `确认删除分类「${category.name}」？删除后该分类不可恢复，已发布物品需重新归类。`,
+        '删除分类',
+        {
+          type: 'warning',
+          confirmButtonText: '确认删除',
+          cancelButtonText: '取消'
+        }
+      )
+
       await deleteCategoryApi(category.id)
       ElMessage.success('分类已删除')
       await loadCategories()
     })
-  } catch {
-    ElMessage.error('删除失败，该分类可能已被使用')
+  } catch (error) {
+    if (!isDialogCancel(error)) {
+      ElMessage.error('删除失败，该分类可能已被使用')
+    }
   }
 }
 
@@ -279,10 +312,10 @@ const confirmHandover = async () => {
 
       ElMessage.success('交接记录已保存')
       handoverDialog.value = false
-      
+
       // 后端可能未及时更新状态，前端临时从列表中移除
       handovers.value = handovers.value.filter(item => item.id !== claimId)
-      
+
       // 同时刷新数据
       await load()
     })
@@ -302,8 +335,20 @@ const confirmTransfer = async () => {
   if (!transferTarget.value) return
   if (!transferForm.handoverTarget.trim()) return ElMessage.warning('请填写移交对象')
 
+  const target = transferForm.handoverTarget.trim()
+
   try {
     await runAction('transfer', transferTarget.value.id, async () => {
+      await ElMessageBox.confirm(
+        `确认将滞留物品移交给「${target}」？移交后该物品将退出平台招领展示，由接收方接管保管与处置责任。`,
+        '确认移交',
+        {
+          type: 'warning',
+          confirmButtonText: '确认移交',
+          cancelButtonText: '返回修改'
+        }
+      )
+
       await transferOverdueItemApi(transferTarget.value.id, {
         handoverTarget: transferForm.handoverTarget,
         remark: transferForm.remark
@@ -313,8 +358,10 @@ const confirmTransfer = async () => {
       transferDialog.value = false
       await load()
     })
-  } catch {
-    ElMessage.error('登记移交失败')
+  } catch (error) {
+    if (!isDialogCancel(error)) {
+      ElMessage.error('登记移交失败')
+    }
   }
 }
 
@@ -364,6 +411,16 @@ const confirmResolve = async () => {
 
   try {
     await runAction('resolve', resolveTarget.value.id, async () => {
+      await ElMessageBox.confirm(
+        '确认结案并保存处理结论？结案后该争议会标记为已解决，结论将记录在案用于后续追溯。',
+        '确认结案',
+        {
+          type: 'warning',
+          confirmButtonText: '确认结案',
+          cancelButtonText: '取消'
+        }
+      )
+
       await resolveDisputeApi(resolveTarget.value.id, {
         result: resolveText.value
       })
@@ -372,10 +429,18 @@ const confirmResolve = async () => {
       resolveDialog.value = false
       await load()
     })
-  } catch {
-    ElMessage.error('保存结论失败')
+  } catch (error) {
+    if (!isDialogCancel(error)) {
+      ElMessage.error('保存结论失败')
+    }
   }
 }
+
+watch(handovers, list => clampPage(handoverPage, list.length))
+watch(storageRows, list => clampPage(storagePage, list.length))
+watch(announcements, list => clampPage(announcementPage, list.length))
+watch(disputes, list => clampPage(disputePage, list.length))
+watch(categories, list => clampPage(categoryPage, list.length))
 
 onMounted(() => {
   load()
@@ -384,37 +449,60 @@ onMounted(() => {
 </script>
 
 <template>
-  <AppLoading :visible="pageLoading" text="加载运营数据..." />
-
   <div class="ops-page fade-up">
-    <section class="ops-summary">
+    <section class="ops-summary" aria-label="运营概览" :aria-busy="loading ? 'true' : 'false'">
       <div class="ops-tile glass-card">
         <LineIcon name="user-check" tone="green" />
         <span>待交接认领</span>
-        <b>{{ handovers.length }}</b>
+        <b>{{ tileValue(handovers.length) }}</b>
       </div>
 
       <div class="ops-tile glass-card">
         <LineIcon name="package" tone="orange" />
         <span>保管记录</span>
-        <b>{{ storageRows.length }}</b>
+        <b>{{ tileValue(storageRows.length) }}</b>
       </div>
 
       <div class="ops-tile glass-card">
         <LineIcon name="megaphone" tone="blue" />
         <span>平台公告</span>
-        <b>{{ announcements.length }}</b>
+        <b>{{ tileValue(announcements.length) }}</b>
       </div>
 
       <div class="ops-tile glass-card">
         <LineIcon name="alert" tone="red" />
         <span>争议处理</span>
-        <b>{{ unresolvedDisputeCount }}</b>
+        <b>{{ tileValue(unresolvedDisputeCount) }}</b>
       </div>
     </section>
 
-    <el-tabs v-model="active" class="admin-tabs">
+    <ErrorState
+      v-if="error && !loaded"
+      title="运营数据加载失败"
+      :desc="error"
+      @retry="load"
+    />
+
+    <section v-else-if="firstLoading" class="ops-skeleton glass-card" aria-busy="true" aria-label="运营数据加载中">
+      <el-skeleton v-for="n in 4" :key="n" animated>
+        <template #template>
+          <div class="skeleton-row">
+            <el-skeleton-item variant="circle" class="skeleton-icon" />
+
+            <div class="skeleton-copy">
+              <el-skeleton-item variant="h3" style="width: 34%" />
+              <el-skeleton-item variant="text" style="width: 82%" />
+              <el-skeleton-item variant="text" style="width: 56%" />
+            </div>
+          </div>
+        </template>
+      </el-skeleton>
+    </section>
+
+    <el-tabs v-else v-model="active" class="admin-tabs">
       <el-tab-pane label="交接处理" name="handover">
+        <h2 class="sr-only">待交接申请列表</h2>
+
         <section class="ops-list">
           <EmptyState v-if="!loading && !handovers.length" title="暂无待交接申请" desc="认领审核通过后，会进入这里进行线下或邮寄交接。" />
 
@@ -440,9 +528,9 @@ onMounted(() => {
             </div>
 
             <div class="actions">
-  <el-button class="solid-action success-action" type="success" @click="finishHandover(claim, 'offline')">完成线下交接</el-button>
-  <el-button class="soft-action primary-action" @click="finishHandover(claim, 'delivery')">登记邮寄交接</el-button>
-</div>
+              <el-button class="solid-action success-action" type="success" @click="finishHandover(claim, 'offline')">完成线下交接</el-button>
+              <el-button class="soft-action primary-action" @click="finishHandover(claim, 'delivery')">登记邮寄交接</el-button>
+            </div>
           </div>
 
           <div v-if="handovers.length > pageSize" class="pagination-bar">
@@ -452,12 +540,15 @@ onMounted(() => {
               :total="handovers.length"
               layout="prev, pager, next, jumper"
               background
+              aria-label="待交接申请分页"
             />
           </div>
         </section>
       </el-tab-pane>
 
       <el-tab-pane label="滞留物品" name="storage">
+        <h2 class="sr-only">滞留物品列表</h2>
+
         <section class="ops-list">
           <EmptyState v-if="!loading && !storageRows.length" title="暂无滞留物品" desc="超过保管期仍无人认领的物品会进入这里处理。" />
 
@@ -487,12 +578,15 @@ onMounted(() => {
               :total="storageRows.length"
               layout="prev, pager, next, jumper"
               background
+              aria-label="滞留物品分页"
             />
           </div>
         </section>
       </el-tab-pane>
 
       <el-tab-pane label="公告发布" name="announcements">
+        <h2 class="sr-only">公告记录列表</h2>
+
         <div class="announce-box glass-card">
           <h2>发布平台公告</h2>
 
@@ -500,16 +594,17 @@ onMounted(() => {
 
           <el-form :model="notice" label-position="top" class="notice-form">
             <el-form-item label="公告标题">
-              <el-input v-model="notice.title" placeholder="例如：图书馆三楼失物高发提醒" />
+              <el-input v-model="notice.title" placeholder="例如：图书馆三楼失物高发提醒" aria-label="公告标题" />
             </el-form-item>
 
             <el-form-item label="公告内容">
-              <el-input v-model="notice.content" type="textarea" :rows="4" placeholder="请输入公告内容" />
+              <el-input v-model="notice.content" type="textarea" :rows="4" placeholder="请输入公告内容" aria-label="公告内容" />
             </el-form-item>
 
             <el-button
               type="primary"
               :loading="isActionLoading('notice', 'publish')"
+              :disabled="isActionLoading('notice', 'publish')"
               @click="submitNotice"
             >
               发布公告
@@ -542,12 +637,15 @@ onMounted(() => {
               :total="announcements.length"
               layout="prev, pager, next, jumper"
               background
+              aria-label="公告记录分页"
             />
           </div>
         </section>
       </el-tab-pane>
 
       <el-tab-pane label="争议处理" name="disputes">
+        <h2 class="sr-only">争议记录列表</h2>
+
         <section class="ops-list">
           <EmptyState v-if="!loading && !disputes.length" title="暂无争议记录" desc="认领过程发生争议或领错归还时，会进入这里处理。" />
 
@@ -579,59 +677,81 @@ onMounted(() => {
               :total="disputes.length"
               layout="prev, pager, next, jumper"
               background
+              aria-label="争议记录分页"
             />
           </div>
         </section>
       </el-tab-pane>
 
       <el-tab-pane label="分类管理" name="categories">
+        <h2 class="sr-only">物品分类列表</h2>
+
         <section class="ops-list">
           <div class="category-toolbar">
-  <el-button class="solid-action primary-action" @click="openCategoryDialog()">新增分类</el-button>
-</div>
+            <el-button class="solid-action primary-action" @click="openCategoryDialog()">新增分类</el-button>
+          </div>
 
-          <EmptyState v-if="!categories.length" title="暂无分类" desc="添加物品分类后，用户发布时可选择对应分类。" />
+          <ErrorState
+            v-if="categoryError"
+            title="分类列表加载失败"
+            :desc="categoryError"
+            @retry="loadCategories"
+          />
 
-          <div v-for="item in paginatedList(categories, categoryPage)" :key="item.id" class="ops-row glass-card">
-            <LineIcon name="package" tone="blue" />
+          <el-skeleton
+            v-else-if="!categoryLoaded"
+            class="category-skeleton"
+            :rows="3"
+            animated
+            aria-busy="true"
+            aria-label="分类列表加载中"
+          />
 
-            <div>
-              <div class="title">
-                <b>{{ item.name }}</b>
-                <span>排序：{{ item.sort }}</span>
+          <template v-else>
+            <EmptyState v-if="!categories.length" title="暂无分类" desc="添加物品分类后，用户发布时可选择对应分类。" />
+
+            <div v-for="item in paginatedList(categories, categoryPage)" :key="item.id" class="ops-row glass-card">
+              <LineIcon name="package" tone="blue" />
+
+              <div>
+                <div class="title">
+                  <b>{{ item.name }}</b>
+                  <span>排序：{{ item.sort }}</span>
+                </div>
+              </div>
+
+              <div class="actions">
+                <el-button class="soft-action primary-action" @click="openCategoryDialog(item)">编辑</el-button>
+                <el-button
+                  class="soft-action danger-action"
+                  :loading="isActionLoading('category', item.id)"
+                  :disabled="isActionLoading('category', item.id)"
+                  @click="removeCategory(item)"
+                >
+                  删除
+                </el-button>
               </div>
             </div>
 
-            <div class="actions">
-  <el-button class="soft-action primary-action" @click="openCategoryDialog(item)">编辑</el-button>
-  <el-button
-    class="soft-action danger-action"
-    :loading="isActionLoading('category', item.id)"
-    :disabled="isActionLoading('category', item.id)"
-    @click="removeCategory(item)"
-  >
-    删除
-  </el-button>
-</div>
-          </div>
-
-          <div v-if="categories.length > pageSize" class="pagination-bar">
-            <el-pagination
-              v-model:current-page="categoryPage"
-              :page-size="pageSize"
-              :total="categories.length"
-              layout="prev, pager, next, jumper"
-              background
-            />
-          </div>
+            <div v-if="categories.length > pageSize" class="pagination-bar">
+              <el-pagination
+                v-model:current-page="categoryPage"
+                :page-size="pageSize"
+                :total="categories.length"
+                layout="prev, pager, next, jumper"
+                background
+                aria-label="分类列表分页"
+              />
+            </div>
+          </template>
         </section>
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="handoverDialog" title="确认完成交接" width="500px">
+    <el-dialog v-model="handoverDialog" title="确认完成交接" width="min(500px, 92vw)">
       <el-form label-position="top">
         <el-form-item label="交接方式">
-          <el-input v-model="handoverForm.methodText" disabled />
+          <el-input v-model="handoverForm.methodText" disabled aria-label="交接方式" />
         </el-form-item>
 
         <el-form-item label="交接备注">
@@ -640,6 +760,7 @@ onMounted(() => {
             type="textarea"
             :rows="3"
             placeholder="例如：认领人出示学生证或校园身份凭证，管理员核验物品细节后完成交接。"
+            aria-label="交接备注"
           />
         </el-form-item>
       </el-form>
@@ -649,21 +770,22 @@ onMounted(() => {
         <el-button
           type="success"
           :loading="!!handoverTarget && isActionLoading('handover', handoverTarget.id)"
+          :disabled="!!handoverTarget && isActionLoading('handover', handoverTarget.id)"
           @click="confirmHandover"
         >
-          确认完成
+          确认完成交接
         </el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="transferDialog" title="登记滞留物品移交" width="500px">
+    <el-dialog v-model="transferDialog" title="登记滞留物品移交" width="min(500px, 92vw)">
       <el-form label-position="top">
         <el-form-item label="移交对象">
-          <el-input v-model="transferForm.handoverTarget" placeholder="如：学院办公室 / 保卫处 / 有关部门" />
+          <el-input v-model="transferForm.handoverTarget" placeholder="如：学院办公室 / 保卫处 / 有关部门" aria-label="移交对象" />
         </el-form-item>
 
         <el-form-item label="移交备注">
-          <el-input v-model="transferForm.remark" type="textarea" :rows="3" placeholder="请填写移交原因、交接地点或补充说明" />
+          <el-input v-model="transferForm.remark" type="textarea" :rows="3" placeholder="请填写移交原因、交接地点或补充说明" aria-label="移交备注" />
         </el-form-item>
       </el-form>
 
@@ -672,6 +794,7 @@ onMounted(() => {
         <el-button
           type="primary"
           :loading="!!transferTarget && isActionLoading('transfer', transferTarget.id)"
+          :disabled="!!transferTarget && isActionLoading('transfer', transferTarget.id)"
           @click="confirmTransfer"
         >
           确认移交
@@ -679,14 +802,15 @@ onMounted(() => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="resolveDialog" title="填写争议处理结论" width="500px">
-      <el-input v-model="resolveText" type="textarea" :rows="4" placeholder="例如：要求补充证明材料 / 维持原审核结果 / 重新核验物品归属" />
+    <el-dialog v-model="resolveDialog" title="填写争议处理结论" width="min(500px, 92vw)">
+      <el-input v-model="resolveText" type="textarea" :rows="4" placeholder="例如：要求补充证明材料 / 维持原审核结果 / 重新核验物品归属" aria-label="争议处理结论" />
 
       <template #footer>
         <el-button @click="resolveDialog = false">取消</el-button>
         <el-button
           type="primary"
           :loading="!!resolveTarget && isActionLoading('resolve', resolveTarget.id)"
+          :disabled="!!resolveTarget && isActionLoading('resolve', resolveTarget.id)"
           @click="confirmResolve"
         >
           保存结论
@@ -694,14 +818,14 @@ onMounted(() => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="categoryDialog" :title="categoryTarget ? '编辑分类' : '新增分类'" width="400px">
+    <el-dialog v-model="categoryDialog" :title="categoryTarget ? '编辑分类' : '新增分类'" width="min(400px, 92vw)">
       <el-form label-position="top">
         <el-form-item label="分类名称">
-          <el-input v-model="categoryForm.name" placeholder="例如：校园卡" />
+          <el-input v-model="categoryForm.name" placeholder="例如：校园卡" aria-label="分类名称" />
         </el-form-item>
 
         <el-form-item label="排序值">
-          <el-input-number v-model="categoryForm.sort" :min="0" />
+          <el-input-number v-model="categoryForm.sort" :min="0" aria-label="分类排序值" />
         </el-form-item>
       </el-form>
 
@@ -710,6 +834,7 @@ onMounted(() => {
         <el-button
           type="primary"
           :loading="isActionLoading('category', categoryTarget?.id || 'new')"
+          :disabled="isActionLoading('category', categoryTarget?.id || 'new')"
           @click="saveCategory"
         >
           保存
@@ -723,6 +848,7 @@ onMounted(() => {
 .ops-page {
   display: grid;
   gap: 18px;
+  min-width: 0;
 }
 
 .ops-summary {
@@ -747,6 +873,7 @@ onMounted(() => {
 .ops-tile b {
   font-size: 26px;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .admin-tabs {
@@ -758,7 +885,8 @@ onMounted(() => {
 
 .ops-list {
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  min-width: 0;
 }
 
 .ops-list.after {
@@ -774,6 +902,10 @@ onMounted(() => {
   background: rgba(255, 255, 255, .9);
 }
 
+.ops-row > div {
+  min-width: 0;
+}
+
 .title {
   display: flex;
   align-items: center;
@@ -781,14 +913,20 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
+.title b {
+  overflow-wrap: anywhere;
+}
+
 .ops-row p {
   margin: 8px 0;
   color: var(--muted);
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .ops-row small {
   color: #8b95a7;
+  overflow-wrap: anywhere;
 }
 
 .actions {
@@ -803,9 +941,15 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
+.category-skeleton {
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, .78);
+}
+
 .actions :deep(.el-button),
 .category-toolbar :deep(.el-button) {
-  min-height: 38px;
+  min-height: 40px;
   padding: 9px 18px;
   border-radius: 999px;
   font-weight: 900;
@@ -855,6 +999,7 @@ onMounted(() => {
 .solid-action:hover {
   transform: translateY(-1px);
   box-shadow: 0 14px 30px rgba(31, 45, 92, .14);
+  transition: transform .18s ease, box-shadow .18s ease;
 }
 
 .soft-action:disabled,
@@ -863,6 +1008,35 @@ onMounted(() => {
   background: rgba(241, 245, 249, .9) !important;
   box-shadow: none;
   cursor: not-allowed;
+}
+
+.ops-skeleton {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  background: rgba(255, 255, 255, .82);
+}
+
+.skeleton-row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid rgba(17, 24, 39, .06);
+  border-radius: 24px;
+}
+
+.skeleton-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+}
+
+.skeleton-copy {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
 }
 
 .announce-box {
@@ -889,6 +1063,7 @@ onMounted(() => {
   padding: 9px 12px;
   border-radius: 14px;
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .result {
@@ -909,7 +1084,7 @@ onMounted(() => {
 
 :deep(.el-dialog__footer .el-button) {
   min-width: 92px;
-  height: 38px;
+  height: 40px;
   border-radius: 999px;
   font-weight: 900;
 }
@@ -930,9 +1105,10 @@ onMounted(() => {
   display: flex;
   justify-content: center;
   padding: 20px 0 10px;
+  overflow-x: auto;
 }
 
-@media (max-width: 920px) {
+@media (max-width: 960px) {
   .ops-summary {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -946,10 +1122,10 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 560px) {
-  /* 单列时用 minmax(0,1fr) 兜住 min-content，避免标签栏把整页撑到 476px 后被裁切 */
+@media (max-width: 620px) {
   .ops-page {
     grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
   }
 
   .ops-summary {
@@ -957,7 +1133,30 @@ onMounted(() => {
   }
 
   .admin-tabs {
+    padding: 14px;
+    border-radius: 22px;
     min-width: 0;
+  }
+
+  .ops-row {
+    padding: 16px;
+    gap: 14px;
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+    min-height: 42px;
+  }
+
+  .announce-box {
+    padding: 18px;
   }
 }
 </style>

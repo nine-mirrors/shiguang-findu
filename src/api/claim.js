@@ -1,6 +1,32 @@
 import request from './request'
 
 /**
+ * 上传认领凭证图片
+ * 接口：POST /api/claims/proofs
+ *
+ * 说明：
+ * - 图片必须先由后端落盘，再把返回的地址写进 proof_images
+ * - 直接提交 PhotoUploader 的 blob: URL 会得到「上传成功但详情空白」的假象
+ * - config 用于传 onUploadProgress，页面据此展示上传进度
+ */
+export const uploadClaimProofsApi = (images = [], config = {}) => {
+  const formData = new FormData()
+
+  images
+    .filter(image => image instanceof File)
+    .forEach(image => {
+      formData.append('images[]', image)
+    })
+
+  return request.post('/api/claims/proofs', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    },
+    ...config
+  })
+}
+
+/**
  * 第一优先级：提交认领申请 / 线索说明
  * 文档接口：POST /api/claims
  *

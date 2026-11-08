@@ -14,6 +14,7 @@ const keyword = ref('')
 const items = ref([])
 const categoryList = ref([])
 const loadFailed = ref(false)
+const loading = ref(true)
 
 const dashboard = ref({
   total: 0,
@@ -115,18 +116,21 @@ async function loadHomeData() {
     items.value = normalizeItems(res)
     dashboard.value = buildDashboard(items.value)
     loadFailed.value = false
-  } catch (error) {
-    console.error('获取首页数据失败:', error)
+  } catch {
     loadFailed.value = true
   }
 }
 
 async function retryLoad() {
+  loading.value = true
   loadFailed.value = false
+
   await Promise.all([
     loadCategories(),
     loadHomeData()
   ])
+
+  loading.value = false
 }
 
 const buildDashboard = list => {
@@ -176,6 +180,8 @@ onMounted(async () => {
     loadCategories(),
     loadHomeData()
   ])
+
+  loading.value = false
 })
 </script>
 
@@ -190,7 +196,13 @@ onMounted(async () => {
         <p>从发布、审核、匹配到认领交接，拾光 FindU 让校园失物信息不再淹没于群聊，让真正的失主更快找到线索，也让每一次归还都有流程和记录。</p>
 
         <div class="search-box">
-          <el-input v-model="keyword" size="large" placeholder="搜索耳机、校园卡、钥匙、图书馆等" @keyup.enter="goSearch" />
+          <el-input
+            v-model="keyword"
+            size="large"
+            aria-label="搜索失物或招领信息"
+            placeholder="搜索耳机、校园卡、钥匙、图书馆等"
+            @keyup.enter="goSearch"
+          />
           <el-button type="primary" size="large" @click="goSearch">立即查找</el-button>
         </div>
 
@@ -254,8 +266,21 @@ onMounted(async () => {
         <el-button @click="$router.push('/items')">查看全部</el-button>
       </div>
 
+      <section v-if="loading" class="item-grid" aria-busy="true" aria-label="正在加载最新协寻动态">
+        <el-skeleton v-for="item in 6" :key="item" animated>
+          <template #template>
+            <div class="skeleton-card">
+              <el-skeleton-item variant="image" class="skeleton-image" />
+              <el-skeleton-item variant="h3" style="width: 70%" />
+              <el-skeleton-item variant="text" style="width: 95%" />
+              <el-skeleton-item variant="text" style="width: 60%" />
+            </div>
+          </template>
+        </el-skeleton>
+      </section>
+
       <ErrorState
-        v-if="loadFailed"
+        v-else-if="loadFailed"
         title="首页数据加载失败"
         desc="请确认后端服务已启动（默认 http://localhost:4000），或稍后重试。"
         @retry="retryLoad"

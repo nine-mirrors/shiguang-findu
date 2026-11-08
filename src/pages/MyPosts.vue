@@ -1,19 +1,22 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getMyItemsApi, updateItemStatusApi, deleteItemApi } from '@/api/item'
 import { getMyClaimsApi, createClaimApi } from '@/api/claim'
 import { formatDateTime } from '@/utils/format'
 import StatCard from '@/components/StatCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import AppLoading from '@/components/AppLoading.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 const items = ref([])
 const claims = ref([])
 const loading = ref(false)
+const loadError = ref(false)
 const activeTab = ref(route.query.tab === 'claims' ? 'claims' : 'posts')
 
 const wrongReturnDialog = ref(false)
@@ -198,6 +201,7 @@ const submitWrongReturn = async () => {
 
 const load = async () => {
   loading.value = true
+  loadError.value = false
 
   try {
     const [itemRes, claimRes] = await Promise.all([
@@ -207,6 +211,8 @@ const load = async () => {
 
     items.value = normalizeList(itemRes)
     claims.value = normalizeList(claimRes)
+  } catch {
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -305,11 +311,38 @@ onMounted(load)
 watch(() => route.query.tab, value => {
   activeTab.value = value === 'claims' ? 'claims' : 'posts'
 })
+
+// 切换 tab 同步到 URL，刷新和前进后退都能保持当前视图
+watch(activeTab, value => {
+  const nextTab = value === 'claims' ? 'claims' : ''
+  const currentTab = route.query.tab === 'claims' ? 'claims' : ''
+
+  if (nextTab === currentTab) return
+
+  const nextQuery = { ...route.query }
+
+  if (nextTab) {
+    nextQuery.tab = nextTab
+  } else {
+    delete nextQuery.tab
+  }
+
+  router.push({ query: nextQuery })
+})
 </script>
 
 <template>
-  <div class="my-page container">
-    <AppLoading :visible="loading" text="加载我的信息..." />
+  <AppLoading :visible="loading" text="加载我的信息..." />
+
+  <ErrorState
+    v-if="!loading && loadError"
+    title="我的信息加载失败"
+    desc="发布与认领记录暂时没能取回，可以重新加载。"
+    button-text="重新加载"
+    @retry="load"
+  />
+
+  <div v-else class="my-page container">
 
     <section class="section-title fade-up">
       <div>

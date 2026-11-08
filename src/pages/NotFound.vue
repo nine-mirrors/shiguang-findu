@@ -20,21 +20,21 @@ const goBack = () => {
 
 <template>
   <div class="not-found-page">
-    <section class="not-found-card fade-up">
-      <div class="decor decor-left"></div>
-      <div class="decor decor-right"></div>
+    <section class="not-found-card fade-up" aria-labelledby="notfound-title">
+      <div class="decor decor-left" aria-hidden="true"></div>
+      <div class="decor decor-right" aria-hidden="true"></div>
 
       <div class="status-block">
         <div class="icon-wrap">
           <LineIcon name="file" tone="blue" />
         </div>
 
-        <div class="status-code">404</div>
+        <div class="status-code" aria-hidden="true">404</div>
       </div>
 
       <span class="kicker">页面不存在</span>
 
-      <h1>你访问的页面没有找到</h1>
+      <h1 id="notfound-title">你访问的页面没有找到</h1>
 
       <p class="summary">
         可能是地址输入错误、页面已被移动，或者该功能暂未开放。你可以返回上一页，或回到首页继续使用 FindU。
@@ -143,9 +143,9 @@ const goBack = () => {
   z-index: 1;
   margin: 18px 0 14px;
   color: var(--ink);
-  font-size: clamp(34px, 5vw, 56px);
-  line-height: 1.08;
-  letter-spacing: -.055em;
+  font-size: clamp(32px, 5vw, 52px);
+  line-height: 1.16;
+  letter-spacing: -.03em;
 }
 
 .summary {
@@ -155,6 +155,7 @@ const goBack = () => {
   margin: 0 auto;
   color: var(--muted);
   line-height: 1.85;
+  overflow-wrap: anywhere;
 }
 
 .hint-box {
@@ -211,7 +212,7 @@ const goBack = () => {
   box-shadow: 0 14px 30px rgba(79, 124, 255, .22);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 620px) {
   .not-found-page {
     padding: 24px 16px;
   }

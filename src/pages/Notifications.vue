@@ -5,11 +5,14 @@ import { ElMessage } from 'element-plus'
 import { getNotificationsApi, readNotificationApi, readAllNotificationsApi } from '@/api/notification'
 import { formatDateTime } from '@/utils/format'
 import LineIcon from '@/components/LineIcon.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 
 const router = useRouter()
 
 const list = ref([])
 const loading = ref(false)
+const loadError = ref(false)
 const readAllLoading = ref(false)
 const readingIds = ref(new Set())
 const detailVisible = ref(false)
@@ -133,10 +136,13 @@ const hasRelatedTarget = item => {
 
 const load = async () => {
   loading.value = true
+  loadError.value = false
 
   try {
     const res = await getNotificationsApi()
     list.value = normalizeNotifications(res)
+  } catch {
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -179,6 +185,8 @@ const openDetail = async item => {
         read_at: new Date().toISOString()
       }
     })
+  } catch {
+    // 错误提示已在 request.js 拦截器中统一处理
   } finally {
     setReading(item, false)
   }
@@ -198,6 +206,8 @@ const readAll = async () => {
     await readAllNotificationsApi()
     ElMessage.success('已全部标记为已读')
     await load()
+  } catch {
+    // 错误提示已在 request.js 拦截器中统一处理
   } finally {
     readAllLoading.value = false
   }
@@ -252,16 +262,35 @@ onMounted(load)
           <el-button size="small" :loading="readAllLoading" :disabled="loading" @click="readAll">全部已读</el-button>
         </div>
 
-        <div v-if="!loading && !list.length" class="empty-text">
-          暂无通知
+        <div v-if="loading" class="notify-skeleton">
+          <el-skeleton v-for="item in 4" :key="item" animated :rows="2" />
         </div>
+
+        <ErrorState
+          v-else-if="loadError"
+          title="通知加载失败"
+          desc="暂时没能取回通知列表，可以重新加载。"
+          button-text="重新加载"
+          @retry="load"
+        />
+
+        <EmptyState
+          v-else-if="!list.length"
+          title="暂无通知"
+          desc="发布审核、认领状态和匹配提醒会出现在这里。"
+        />
 
         <div
           v-for="item in list"
           :key="item.id"
           class="notify-item"
           :class="{ unread: isUnread(item) }"
+          role="button"
+          tabindex="0"
+          :aria-label="`${getTitle(item)}，${isUnread(item) ? '未读' : '已读'}，查看详情`"
           @click="openDetail(item)"
+          @keydown.enter="openDetail(item)"
+          @keydown.space.prevent="openDetail(item)"
         >
           <LineIcon :name="iconOf(item.type)" :tone="toneOf(item.type)" />
 
@@ -294,7 +323,7 @@ onMounted(load)
       </aside>
     </section>
 
-    <el-dialog v-model="detailVisible" title="通知详情" width="520px">
+    <el-dialog v-model="detailVisible" title="通知详情" width="min(520px, 92vw)">
       <div v-if="currentNotice" class="notice-detail">
         <div class="detail-head">
           <LineIcon :name="iconOf(currentNotice.type)" :tone="toneOf(currentNotice.type)" />

@@ -1,19 +1,23 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { sendEmailCodeApi } from '@/api/auth'
 import { cancelUserAccountApi, getUserProfileApi, updateUserProfileApi } from '@/api/user'
 import { useUserStore } from '@/stores/user'
+import { resolveImageUrl } from '@/utils/image'
+import ErrorState from '@/components/ErrorState.vue'
 
 const userStore = useUserStore()
 const router = useRouter()
 
 const loading = ref(false)
+const loadError = ref(false)
 const saving = ref(false)
 const cancelLoading = ref(false)
 const codeLoading = ref(false)
 const cancelDialog = ref(false)
+const avatarBroken = ref(false)
 const countdown = ref(0)
 let timer = null
 
@@ -46,6 +50,10 @@ const displayName = computed(() => {
 const avatarText = computed(() => {
   return displayName.value.slice(0, 1)
 })
+
+const avatarUrl = computed(() => resolveImageUrl(profile.value.avatar))
+
+const showAvatarImage = computed(() => Boolean(profile.value.avatar) && !avatarBroken.value)
 
 const roleText = computed(() => {
   if (profile.value.role === 'admin') return '管理员'
@@ -104,6 +112,10 @@ const updateStoreUser = data => {
   })
 }
 
+const handleAvatarError = () => {
+  avatarBroken.value = true
+}
+
 const startCountdown = () => {
   countdown.value = 60
 
@@ -129,12 +141,16 @@ const resetCancelForm = () => {
 
 const loadProfile = async () => {
   loading.value = true
+  loadError.value = false
 
   try {
     const res = await getUserProfileApi()
     profile.value = normalizeProfile(res)
+    avatarBroken.value = false
     syncEditForm()
     updateStoreUser(profile.value)
+  } catch {
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -153,9 +169,12 @@ const saveProfile = async () => {
   try {
     const res = await updateUserProfileApi(editForm.value)
     profile.value = normalizeProfile(res)
+    avatarBroken.value = false
     syncEditForm()
     updateStoreUser(profile.value)
     ElMessage.success('个人信息已更新')
+  } catch {
+    // 错误提示由 request.js 统一处理，保留用户已填内容以便再次保存
   } finally {
     saving.value = false
   }
@@ -175,21 +194,27 @@ const sendCancelCode = async () => {
     await sendEmailCodeApi(profile.value.email, 'cancel_account')
     ElMessage.success('注销验证码已发送至当前账号邮箱')
     startCountdown()
+  } catch {
+    // 错误提示由 request.js 统一处理
   } finally {
     codeLoading.value = false
   }
 }
 
 const openCancelDialog = async () => {
-  await ElMessageBox.confirm(
-    '注销账号后，该账号将无法继续登录。历史发布、认领、通知和风控记录会按平台规则保留。确定继续吗？',
-    '注销账号确认',
-    {
-      type: 'warning',
-      confirmButtonText: '继续注销',
-      cancelButtonText: '取消'
-    }
-  )
+  try {
+    await ElMessageBox.confirm(
+      '注销账号后，该账号将无法继续登录。历史发布、认领、通知和风控记录会按平台规则保留。确定继续吗？',
+      '注销账号确认',
+      {
+        type: 'warning',
+        confirmButtonText: '继续注销',
+        cancelButtonText: '取消'
+      }
+    )
+  } catch {
+    return
+  }
 
   resetCancelForm()
   cancelDialog.value = true
@@ -208,8 +233,6 @@ const submitCancelAccount = async () => {
     return
   }
 
-  cancelLoading.value = true
-
   try {
     await ElMessageBox.confirm(
       '请再次确认是否注销当前账号。注销成功后会退出登录。',
@@ -220,24 +243,36 @@ const submitCancelAccount = async () => {
         cancelButtonText: '取消'
       }
     )
+  } catch {
+    return
+  }
 
+  cancelLoading.value = true
+
+  try {
     await cancelUserAccountApi(cancelForm)
     ElMessage.success('账号已注销')
     cancelDialog.value = false
     resetCancelForm()
     userStore.clearAuth()
     router.push('/login')
+  } catch {
+    // 错误提示由 request.js 统一处理
   } finally {
     cancelLoading.value = false
   }
 }
 
 const handleLogout = async () => {
-  await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
-    confirmButtonText: '确定',
-    cancelButtonText: '取消',
-    type: 'warning'
-  })
+  try {
+    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
 
   await userStore.logout()
   ElMessage.success('已退出登录')
@@ -256,94 +291,124 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="profile-page container">
-    <section class="profile-card glass-card fade-up" v-loading="loading">
-      <div class="avatar-big">{{ avatarText }}</div>
+    <h1 v-if="loading || loadError" class="sr-only">个人中心</h1>
 
-      <div>
-        <span class="kicker">个人中心</span>
+    <div v-if="loading" class="profile-skeleton glass-card" aria-busy="true" aria-label="正在加载个人资料">
+      <el-skeleton :rows="6" animated />
+    </div>
 
-        <h1>{{ displayName }}</h1>
+    <ErrorState
+      v-else-if="loadError"
+      class="profile-error glass-card"
+      title="个人资料加载失败"
+      desc="暂时无法获取账号资料，请检查网络连接后重试。"
+      @retry="loadProfile"
+    />
 
-        <p>{{ profile.email || userStore.user?.email }}</p>
-      </div>
+    <template v-else>
+      <section class="profile-card glass-card fade-up">
+        <div class="avatar-big" aria-hidden="true">
+          <img v-if="showAvatarImage" :src="avatarUrl" alt="" @error="handleAvatarError" />
 
-      <div class="profile-actions">
-        <el-button @click="$router.push('/my-posts')">我的发布</el-button>
-        <el-button type="primary" @click="$router.push('/publish')">发布信息</el-button>
-      </div>
-    </section>
-
-    <section class="profile-grid">
-      <div class="glass-card panel">
-        <h2>账号信息</h2>
-
-        <p>角色：{{ roleText }}</p>
-
-        <p>
-          认证等级：
-          <el-tag :type="verificationTagType" size="small">{{ verificationText }}</el-tag>
-        </p>
-
-        <p>登录方式：邮箱 + 密码</p>
-
-        <div class="panel-actions">
-  <el-button
-    v-if="profile.role !== 'admin'"
-    class="verify-btn"
-    @click="$router.push('/verification')"
-  >
-    查看实名认证
-  </el-button>
-
-  <el-button
-    v-else
-    class="verify-btn"
-    @click="$router.push('/admin/verifications')"
-  >
-    认证审核
-  </el-button>
-</div>
-      </div>
-
-      <div class="glass-card panel">
-        <h2>资料编辑</h2>
-
-        <el-form label-position="top" class="profile-form">
-          <el-form-item label="用户名">
-            <el-input v-model.trim="editForm.username" placeholder="请输入用户名" />
-          </el-form-item>
-
-          <el-form-item label="手机号">
-            <el-input v-model.trim="editForm.phone" placeholder="请输入手机号" />
-          </el-form-item>
-
-          <div class="form-actions">
-            <el-button type="primary" :loading="saving" @click="saveProfile">保存修改</el-button>
-            <el-button plain @click="handleLogout">退出登录</el-button>
-          </div>
-        </el-form>
-      </div>
-
-      <div class="glass-card panel danger-panel">
-        <h2>账号安全</h2>
-
-        <p>
-          如需注销账号，需要验证当前登录密码和邮箱验证码。注销后账号将无法继续登录，历史业务记录会按平台规则保留。
-        </p>
-
-        <div class="panel-actions">
-          <el-button type="danger" plain @click="openCancelDialog">注销账号</el-button>
+          <span v-else>{{ avatarText }}</span>
         </div>
-      </div>
-    </section>
 
-    <el-dialog v-model="cancelDialog" title="注销账号" width="520px">
-      <div class="cancel-warning">
+        <div class="profile-intro">
+          <span class="kicker">个人中心</span>
+
+          <h1>{{ displayName }}</h1>
+
+          <p>{{ profile.email || userStore.user?.email }}</p>
+        </div>
+
+        <div class="profile-actions">
+          <el-button @click="$router.push('/my-posts')">我的发布</el-button>
+          <el-button type="primary" @click="$router.push('/publish')">发布信息</el-button>
+        </div>
+      </section>
+
+      <section class="profile-grid">
+        <div class="glass-card panel">
+          <h2>账号信息</h2>
+
+          <dl class="info-list">
+            <div class="info-row">
+              <dt>角色</dt>
+              <dd>{{ roleText }}</dd>
+            </div>
+
+            <div class="info-row">
+              <dt>认证等级</dt>
+              <dd>
+                <el-tag :type="verificationTagType" size="small">{{ verificationText }}</el-tag>
+              </dd>
+            </div>
+
+            <div class="info-row">
+              <dt>登录方式</dt>
+              <dd>邮箱 + 密码</dd>
+            </div>
+          </dl>
+
+          <div class="panel-actions">
+            <el-button
+              v-if="profile.role !== 'admin'"
+              class="verify-btn"
+              @click="$router.push('/verification')"
+            >
+              查看实名认证
+            </el-button>
+
+            <el-button
+              v-else
+              class="verify-btn"
+              @click="$router.push('/admin/verifications')"
+            >
+              认证审核
+            </el-button>
+          </div>
+        </div>
+
+        <div class="glass-card panel">
+          <h2>资料编辑</h2>
+
+          <el-form label-position="top" class="profile-form" @submit.prevent>
+            <el-form-item label="用户名">
+              <el-input v-model.trim="editForm.username" maxlength="10" placeholder="请输入用户名" />
+            </el-form-item>
+
+            <el-form-item label="手机号">
+              <el-input v-model.trim="editForm.phone" placeholder="请输入手机号" />
+            </el-form-item>
+
+            <div class="form-actions">
+              <el-button type="primary" :loading="saving" :disabled="saving" @click="saveProfile">保存修改</el-button>
+              <el-button plain @click="handleLogout">退出登录</el-button>
+            </div>
+          </el-form>
+        </div>
+
+        <div class="glass-card panel danger-panel">
+          <h2>账号安全</h2>
+
+          <p>
+            如需注销账号，需要验证当前登录密码和邮箱验证码。注销后账号将无法继续登录，历史业务记录会按平台规则保留。
+          </p>
+
+          <div class="panel-actions">
+            <el-button type="danger" plain @click="openCancelDialog">注销账号</el-button>
+          </div>
+        </div>
+      </section>
+    </template>
+
+    <el-dialog v-model="cancelDialog" title="注销账号" width="min(520px, 92vw)">
+      <div class="cancel-warning" role="alert">
         <b>操作前请确认</b>
         <span>账号注销后将无法继续登录。若存在待审核、待交接、认领中或限制中的业务，后端可能会拒绝注销。</span>
       </div>
 
-      <el-form label-position="top" class="cancel-form">
+      <el-form label-position="top" class="cancel-form" @submit.prevent>
         <el-form-item label="当前登录密码">
           <el-input
             v-model="cancelForm.password"
@@ -377,7 +442,7 @@ onBeforeUnmount(() => {
 
       <template #footer>
         <el-button @click="cancelDialog = false">取消</el-button>
-        <el-button type="danger" :loading="cancelLoading" @click="submitCancelAccount">确认注销</el-button>
+        <el-button type="danger" :loading="cancelLoading" :disabled="cancelLoading" @click="submitCancelAccount">确认注销</el-button>
       </template>
     </el-dialog>
   </div>
@@ -388,6 +453,11 @@ onBeforeUnmount(() => {
   padding-top: 42px;
 }
 
+.profile-skeleton,
+.profile-error {
+  padding: 30px;
+}
+
 .profile-card {
   padding: 34px;
   display: flex;
@@ -396,27 +466,44 @@ onBeforeUnmount(() => {
 }
 
 .avatar-big {
+  flex: none;
   width: 96px;
   height: 96px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   border-radius: 32px;
-  background: linear-gradient(135deg, #315fff, #4f7cff);
+  background: linear-gradient(135deg, var(--primary-strong), var(--primary));
   color: #fff;
   font-size: 42px;
   font-weight: 1000;
   box-shadow: 0 20px 45px rgba(79, 124, 255, .22);
 }
 
+.avatar-big img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.profile-intro {
+  min-width: 0;
+}
+
 .profile-card h1 {
   margin: 14px 0 6px;
   font-size: clamp(32px, 4vw, 48px);
-  letter-spacing: -.05em;
+  line-height: 1.16;
+  letter-spacing: -.03em;
+  overflow-wrap: anywhere;
 }
 
 .profile-card p {
   color: var(--muted);
   margin: 0;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .profile-actions {
@@ -426,19 +513,49 @@ onBeforeUnmount(() => {
 }
 
 .profile-grid {
-  margin-top: 22px;
+  margin-top: 24px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  gap: 18px;
 }
 
 .panel {
   padding: 26px;
 }
 
+.panel h2 {
+  margin: 0 0 16px;
+}
+
 .panel p {
   color: var(--muted);
   line-height: 1.8;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.info-list {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.info-row dt {
+  min-width: 72px;
+  color: var(--muted);
+}
+
+.info-row dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .danger-panel {
@@ -453,17 +570,18 @@ onBeforeUnmount(() => {
 }
 
 .profile-form {
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .verify-btn {
-  background: linear-gradient(135deg, #315fff, #4f7cff);
+  background: linear-gradient(135deg, var(--primary-strong), var(--primary));
   border: 0;
   color: #fff;
 }
 
 .verify-btn:hover {
-  background: linear-gradient(135deg, #1e4af5, #3d6aff);
+  background: linear-gradient(135deg, var(--primary-strong), var(--primary));
+  filter: brightness(.94);
   color: #fff;
 }
 
@@ -506,24 +624,67 @@ onBeforeUnmount(() => {
 
 :deep(.el-dialog__footer .el-button) {
   min-width: 92px;
-  height: 38px;
+  min-height: 40px;
   border-radius: 999px;
   font-weight: 900;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 960px) {
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-card {
+    padding: 28px;
+  }
+}
+
+@media (max-width: 620px) {
+  .profile-page {
+    padding-top: 28px;
+  }
+
   .profile-card {
     align-items: flex-start;
     flex-direction: column;
+    gap: 18px;
+    padding: 22px;
+  }
+
+  .avatar-big {
+    width: 76px;
+    height: 76px;
+    border-radius: 26px;
+    font-size: 34px;
+  }
+
+  .profile-card h1 {
+    font-size: 30px;
+    line-height: 1.24;
   }
 
   .profile-actions {
     margin-left: 0;
+    width: 100%;
     flex-wrap: wrap;
   }
 
-  .profile-grid {
-    grid-template-columns: 1fr;
+  .profile-actions .el-button {
+    flex: 1;
+    margin-left: 0;
+  }
+
+  .panel {
+    padding: 22px;
+  }
+
+  .form-actions {
+    flex-direction: column;
+  }
+
+  .form-actions .el-button {
+    width: 100%;
+    margin-left: 0;
   }
 
   .code-row {

@@ -1,10 +1,12 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { formatDateTime } from '@/utils/format'
 import StatCard from '@/components/StatCard.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
 import LineIcon from '@/components/LineIcon.vue'
-import AppLoading from '@/components/AppLoading.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import { getAdminDashboardApi } from '@/api/admin'
 
 const data = ref({
@@ -18,6 +20,10 @@ const data = ref({
   locations: []
 })
 const loading = ref(false)
+const loaded = ref(false)
+const error = ref('')
+
+const firstLoading = computed(() => loading.value && !loaded.value)
 
 const normalizeDashboard = res => {
   const payload = res?.data || res || {}
@@ -37,6 +43,9 @@ const normalizeDashboard = res => {
 
 const getStorageCode = item => item.storageCode || item.storage_code || '未入库'
 const getCreatedAt = item => formatDateTime(item.createdAt || item.created_at || '')
+
+// 首次加载或加载失败时用占位符，避免数字先闪 0 再跳到真实值
+const statValue = key => (loaded.value && !error.value ? data.value[key] : '—')
 
 const barWidth = value => {
   const max = Math.max(...(data.value.locations || []).map(item => item.value), 1)
@@ -68,12 +77,15 @@ const todoText = type => {
 
 const load = async () => {
   loading.value = true
+  error.value = ''
 
   try {
     const res = await getAdminDashboardApi()
 
     data.value = normalizeDashboard(res)
+    loaded.value = true
   } catch {
+    error.value = '概览数据加载失败，请检查网络连接后重试。'
     ElMessage.error('加载仪表盘数据失败')
   } finally {
     loading.value = false
@@ -86,7 +98,7 @@ onMounted(load)
 <template>
   <div class="admin-dashboard fade-up">
     <section class="admin-hero">
-      <div>
+      <div class="hero-copy">
         <span class="kicker">拾光 FindU · 运营管理后台</span>
 
         <h1>让每一次归还都有流程，让每一份善意都有记录。</h1>
@@ -100,80 +112,185 @@ onMounted(load)
       </div>
     </section>
 
-    <section class="admin-stats">
-      <StatCard label="待审核信息" :value="data.pending" icon="shield" tone="purple" />
-      <StatCard label="认领待核验" :value="data.claimPending" icon="user-check" tone="orange" />
-      <StatCard label="滞留/在库招领" :value="data.retained" icon="package" tone="green" />
-      <StatCard label="风险用户" :value="data.blacklist" icon="alert" tone="red" />
+    <section class="admin-stats" aria-label="后台概览指标" :aria-busy="loading ? 'true' : 'false'">
+      <template v-if="firstLoading">
+        <div v-for="n in 4" :key="n" class="stat-skeleton glass-card">
+          <el-skeleton animated>
+            <template #template>
+              <div class="stat-skeleton-inner">
+                <el-skeleton-item variant="circle" class="skeleton-icon" />
+
+                <div class="stat-skeleton-copy">
+                  <el-skeleton-item variant="h3" style="width: 58%" />
+                  <el-skeleton-item variant="text" style="width: 82%" />
+                </div>
+              </div>
+            </template>
+          </el-skeleton>
+        </div>
+      </template>
+
+      <template v-else>
+        <StatCard label="待审核信息" :value="statValue('pending')" icon="shield" tone="purple" />
+        <StatCard label="认领待核验" :value="statValue('claimPending')" icon="user-check" tone="orange" />
+        <StatCard label="滞留/在库招领" :value="statValue('retained')" icon="package" tone="green" />
+        <StatCard label="风险用户" :value="statValue('blacklist')" icon="alert" tone="red" />
+      </template>
     </section>
 
-    <section class="dashboard-grid">
-      <div class="glass-card panel todo-panel">
+    <ErrorState
+      v-if="error && !loading"
+      title="仪表盘数据加载失败"
+      :desc="error"
+      @retry="load"
+    />
+
+    <template v-else>
+      <section class="dashboard-grid">
+        <div class="glass-card panel todo-panel" :aria-busy="loading ? 'true' : 'false'">
+          <div class="panel-head">
+            <div>
+              <h2>今日待办队列</h2>
+              <p>按风险等级聚合管理员需要优先处理的任务。</p>
+            </div>
+
+            <el-tag class="soft-tag">{{ loading && !loaded ? '—' : `${data.todos?.length || 0} 项` }}</el-tag>
+          </div>
+
+          <div v-if="loading && !loaded" class="skeleton-rows" aria-hidden="true">
+            <el-skeleton v-for="n in 3" :key="n" animated>
+              <template #template>
+                <div class="skeleton-row">
+                  <el-skeleton-item variant="circle" class="skeleton-icon" />
+
+                  <div class="skeleton-row-copy">
+                    <el-skeleton-item variant="h3" style="width: 56%" />
+                    <el-skeleton-item variant="text" style="width: 72%" />
+                  </div>
+                </div>
+              </template>
+            </el-skeleton>
+          </div>
+
+          <template v-else>
+            <EmptyState
+              v-if="!data.todos?.length"
+              title="今天没有待办任务"
+              desc="待审核发布、认领核验与滞留保管任务处理完后，会自动从这里清空。"
+            />
+
+            <button
+              v-for="todo in data.todos"
+              :key="todo.id"
+              type="button"
+              class="todo-row"
+              :aria-label="`${todo.title}，${todoText(todo.type)}，${todo.level === 'high' ? '高优先级' : '中优先级'}`"
+              @click="$router.push(todo.target)"
+            >
+              <LineIcon :name="todoIcon(todo.type)" :tone="todo.level === 'high' ? 'red' : 'orange'" />
+
+              <span class="todo-main">
+                <b>{{ todo.title }}</b>
+                <span class="todo-meta">{{ todoText(todo.type) }}</span>
+              </span>
+
+              <el-tag :type="todo.level === 'high' ? 'danger' : 'warning'">{{ todo.level === 'high' ? '高优先级' : '中优先级' }}</el-tag>
+            </button>
+          </template>
+        </div>
+
+        <div class="glass-card panel" :aria-busy="loading ? 'true' : 'false'">
+          <div class="panel-head">
+            <div>
+              <h2>高频丢失地点</h2>
+              <p>用于发布热点区域提醒。</p>
+            </div>
+          </div>
+
+          <div v-if="loading && !loaded" class="skeleton-rows" aria-hidden="true">
+            <el-skeleton v-for="n in 4" :key="n" animated>
+              <template #template>
+                <div class="skeleton-bar-row">
+                  <el-skeleton-item variant="text" style="width: 76px" />
+                  <el-skeleton-item variant="text" class="skeleton-bar" />
+                </div>
+              </template>
+            </el-skeleton>
+          </div>
+
+          <template v-else>
+            <EmptyState
+              v-if="!data.locations?.length"
+              title="暂未统计到丢失地点"
+              desc="有新的失物 / 招领发布后，这里会按地点聚合出高频区域。"
+            />
+
+            <div
+              v-for="location in data.locations"
+              :key="location.name"
+              class="bar-row"
+              role="img"
+              :aria-label="`${location.name}：${location.value} 条`"
+            >
+              <span>{{ location.name }}</span>
+              <div>
+                <i :style="{ width: barWidth(location.value) }"></i>
+              </div>
+              <b>{{ location.value }}</b>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <section class="glass-card panel retention-board" :aria-busy="loading ? 'true' : 'false'">
         <div class="panel-head">
           <div>
-            <h2>今日待办队列</h2>
-            <p>按风险等级聚合管理员需要优先处理的任务。</p>
+            <h2>滞留物品快照</h2>
+            <p>管理员需要关注保管期、入库编号和移交状态，避免物品长期无人处理。</p>
           </div>
 
-          <el-tag class="soft-tag">{{ data.todos?.length || 0 }} 项</el-tag>
+          <el-button @click="$router.push('/admin/overdue-items')">进入运营处理</el-button>
         </div>
 
-        <div v-for="todo in data.todos" :key="todo.id" class="todo-row" @click="$router.push(todo.target)">
-          <LineIcon :name="todoIcon(todo.type)" :tone="todo.level === 'high' ? 'red' : 'orange'" />
+        <div v-if="loading && !loaded" class="skeleton-rows" aria-hidden="true">
+          <el-skeleton v-for="n in 3" :key="n" animated>
+            <template #template>
+              <div class="skeleton-row">
+                <div class="skeleton-row-copy">
+                  <el-skeleton-item variant="h3" style="width: 42%" />
+                  <el-skeleton-item variant="text" style="width: 78%" />
+                </div>
+              </div>
+            </template>
+          </el-skeleton>
+        </div>
 
-          <div>
-            <b>{{ todo.title }}</b>
-            <p>{{ todoText(todo.type) }}</p>
+        <template v-else>
+          <EmptyState
+            v-if="!data.retainedItems?.length"
+            title="暂无滞留物品"
+            desc="超过保管期仍无人认领的物品会出现在这里，可到运营处理中登记移交。"
+          />
+
+          <div v-for="item in data.retainedItems" :key="item.id" class="retention-row">
+            <div>
+              <b>{{ item.name }}</b>
+              <p>{{ getStorageCode(item) }} · {{ item.location }} · {{ getCreatedAt(item) }}</p>
+            </div>
+
+            <RetentionBadge :item="item" />
           </div>
-
-          <el-tag :type="todo.level === 'high' ? 'danger' : 'warning'">{{ todo.level === 'high' ? '高优先级' : '中优先级' }}</el-tag>
-        </div>
-      </div>
-
-      <div class="glass-card panel">
-        <div class="panel-head">
-          <div>
-            <h2>高频丢失地点</h2>
-            <p>用于发布热点区域提醒。</p>
-          </div>
-        </div>
-
-        <div v-for="location in data.locations" :key="location.name" class="bar-row">
-          <span>{{ location.name }}</span>
-          <div>
-            <i :style="{ width: barWidth(location.value) }"></i>
-          </div>
-          <b>{{ location.value }}</b>
-        </div>
-      </div>
-    </section>
-
-    <section class="glass-card panel retention-board">
-      <div class="panel-head">
-        <div>
-          <h2>滞留物品快照</h2>
-          <p>管理员需要关注保管期、入库编号和移交状态，避免物品长期无人处理。</p>
-        </div>
-
-        <el-button @click="$router.push('/admin/overdue-items')">进入运营处理</el-button>
-      </div>
-
-      <div v-for="item in data.retainedItems" :key="item.id" class="retention-row">
-        <div>
-          <b>{{ item.name }}</b>
-          <p>{{ getStorageCode(item) }} · {{ item.location }} · {{ getCreatedAt(item) }}</p>
-        </div>
-
-        <RetentionBadge :item="item" />
-      </div>
-    </section>
+        </template>
+      </section>
+    </template>
   </div>
 </template>
 
 <style scoped>
 .admin-dashboard {
   display: grid;
-  gap: 20px;
+  gap: 18px;
+  min-width: 0;
 }
 
 .admin-hero {
@@ -188,12 +305,17 @@ onMounted(load)
   box-shadow: 0 28px 70px rgba(49, 95, 255, .24);
 }
 
+.hero-copy {
+  min-width: 0;
+}
+
 .admin-hero h1 {
   max-width: 820px;
   margin: 18px 0 12px;
   font-size: 38px;
   letter-spacing: -.06em;
   line-height: 1.08;
+  overflow-wrap: anywhere;
 }
 
 .admin-hero p {
@@ -220,10 +342,34 @@ onMounted(load)
   gap: 16px;
 }
 
+.stat-skeleton {
+  padding: 22px;
+  background: rgba(255, 255, 255, .8);
+}
+
+.stat-skeleton-inner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.skeleton-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+}
+
+.stat-skeleton-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1.08fr .92fr;
-  gap: 20px;
+  gap: 18px;
 }
 
 .panel {
@@ -250,6 +396,7 @@ onMounted(load)
 }
 
 .todo-row {
+  width: 100%;
   display: grid;
   grid-template-columns: 46px 1fr auto;
   gap: 14px;
@@ -257,13 +404,18 @@ onMounted(load)
   padding: 14px;
   margin-top: 12px;
   cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: rgba(255, 255, 255, .7);
   border-radius: 20px;
   border: 1px solid rgba(17, 24, 39, .06);
-  transition: .22s ease;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
 }
 
 .todo-row:hover {
   transform: translateY(-3px);
+  border-color: rgba(79, 124, 255, .22);
   box-shadow: 0 18px 42px rgba(31, 45, 92, .1);
 }
 
@@ -272,8 +424,19 @@ onMounted(load)
   height: 42px;
 }
 
-.todo-row p {
-  margin: 4px 0 0;
+.todo-main {
+  display: block;
+  min-width: 0;
+  text-align: left;
+}
+
+.todo-row b {
+  overflow-wrap: anywhere;
+}
+
+.todo-meta {
+  display: block;
+  margin-top: 4px;
   color: var(--muted);
 }
 
@@ -284,6 +447,10 @@ onMounted(load)
   align-items: center;
   margin: 16px 0;
   color: var(--muted);
+}
+
+.bar-row span {
+  overflow-wrap: anywhere;
 }
 
 .bar-row div {
@@ -300,6 +467,11 @@ onMounted(load)
   background: linear-gradient(90deg, var(--primary), var(--success));
 }
 
+.bar-row b {
+  text-align: right;
+  color: var(--ink);
+}
+
 .retention-board {
   margin-top: 0;
 }
@@ -313,20 +485,108 @@ onMounted(load)
   border-top: 1px solid rgba(17, 24, 39, .08);
 }
 
+.retention-row b {
+  overflow-wrap: anywhere;
+}
+
 .retention-row p {
   margin: 6px 0 0;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
-@media (max-width: 980px) {
+.skeleton-rows {
+  display: grid;
+  gap: 12px;
+}
+
+.skeleton-row {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(17, 24, 39, .06);
+  border-radius: 20px;
+}
+
+.skeleton-row-copy {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.skeleton-bar-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: center;
+  gap: 12px;
+}
+
+.skeleton-bar {
+  height: 14px;
+  border-radius: 999px;
+}
+
+@media (max-width: 960px) {
   .admin-hero {
     display: block;
+    padding: 26px;
   }
 
-  .admin-stats,
+  .hero-actions {
+    margin-top: 18px;
+  }
+
+  .admin-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .dashboard-grid,
   .retention-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .admin-dashboard {
+    gap: 16px;
+  }
+
+  .admin-hero {
+    padding: 22px;
+    border-radius: 26px;
+  }
+
+  .admin-hero h1 {
+    font-size: 28px;
+    margin: 14px 0 10px;
+  }
+
+  .admin-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    padding: 18px;
+  }
+
+  .panel-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .todo-row {
+    grid-template-columns: 40px 1fr;
+  }
+
+  .todo-row :deep(.el-tag) {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .bar-row {
+    grid-template-columns: 72px 1fr 26px;
   }
 }
 </style>

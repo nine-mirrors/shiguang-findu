@@ -1,20 +1,27 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getItemDetailApi } from '@/api/item'
-import { createClaimApi } from '@/api/claim'
+import { createClaimApi, uploadClaimProofsApi } from '@/api/claim'
 import { formatDateTime } from '@/utils/format'
+import { resolveImageUrl } from '@/utils/image'
+import { takeClaimProofFiles } from '@/utils/claimDraft'
 import { storage } from '@/utils/storage'
 import PhotoUploader from '@/components/PhotoUploader.vue'
 import LineIcon from '@/components/LineIcon.vue'
 import AppLoading from '@/components/AppLoading.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import { ElImageViewer } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
 
 const pageLoading = ref(true)
+const loadError = ref(false)
+const blockedReason = ref('')
+const uploadPercent = ref(0)
 const item = ref(null)
 const formRef = ref()
 const loading = ref(false)
@@ -51,17 +58,7 @@ const availableClaimTypes = computed(() => {
   return types
 })
 
-const getFullImageUrl = url => {
-  if (!url) return ''
-  if (/^https?:\/\//.test(url)) return url
-
-  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
-
-  if (url.startsWith('/storage/')) return `${baseURL}${url}`
-  if (url.startsWith('storage/')) return `${baseURL}/${url}`
-
-  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
-}
+const getFullImageUrl = url => resolveImageUrl(url)
 
 const itemImage = computed(() => {
   let url = ''
@@ -200,24 +197,27 @@ const normalizeItem = res => {
 }
 
 const loadItem = async () => {
+  pageLoading.value = true
+  loadError.value = false
+  blockedReason.value = ''
+
   try {
     const res = await getItemDetailApi(route.params.id)
 
     item.value = normalizeItem(res)
 
     if (!item.value) {
-      ElMessage.error('未找到该物品信息')
       return
     }
 
     // 检查物品是否可认领
     const status = item.value.status
     if (status === 'completed' || status === 'done' || status === 'closed') {
-      ElMessage.warning('该物品已处理完毕，不可提交认领申请')
+      blockedReason.value = '该物品已处理完毕，不再接受新的认领或线索申请。'
       return
     }
     if (status === 'claiming') {
-      ElMessage.warning('该物品正在认领处理中，请耐心等待')
+      blockedReason.value = '该物品正在认领处理中，请等待管理员核验完成后再提交。'
       return
     }
 
@@ -241,7 +241,7 @@ const loadItem = async () => {
       }
     }
   } catch {
-    ElMessage.error('加载物品信息失败')
+    loadError.value = true
   } finally {
     pageLoading.value = false
   }
@@ -258,9 +258,54 @@ const submit = async () => {
     return
   }
 
+  if (form.claimType === 'wrong_return') {
+    const confirmed = await ElMessageBox.confirm(
+      '领错归还会记录到操作日志并通知管理员，请确认已核对物品与本人信息。',
+      '确认提交归还说明',
+      {
+        confirmButtonText: '确认提交',
+        cancelButtonText: '再检查一下',
+        type: 'warning'
+      }
+    )
+      .then(() => true)
+      .catch(() => false)
+
+    if (!confirmed) return
+  }
+
   loading.value = true
 
   try {
+    // 凭证图片先落盘，再把服务端地址写进申请；否则提交的 blob: 地址会失效
+    const proofFiles = (form.proofFiles || []).filter(file => file instanceof File)
+
+    if (proofFiles.length) {
+      uploadPercent.value = 1
+
+      try {
+        const uploadRes = await uploadClaimProofsApi(proofFiles, {
+          onUploadProgress: event => {
+            if (!event.total) return
+            uploadPercent.value = Math.min(99, Math.round((event.loaded / event.total) * 100))
+          }
+        })
+        const payload = uploadRes?.data || uploadRes
+        const uploaded = Array.isArray(payload?.images) ? payload.images : []
+
+        form.proofImages = [
+          ...form.proofImages.filter(url => !String(url).startsWith('blob:')),
+          ...uploaded
+        ]
+        form.proofFiles = []
+        uploadPercent.value = 100
+      } catch {
+        uploadPercent.value = 0
+        ElMessage.error('凭证图片上传失败，请重试或先移除图片后再提交')
+        return
+      }
+    }
+
     await createClaimApi(form)
     ElMessage.success('申请已提交，等待管理员核验')
     router.push('/my-posts?tab=claims')
@@ -268,6 +313,9 @@ const submit = async () => {
     // 错误提示已在 request.js 拦截器中统一处理
   } finally {
     loading.value = false
+    setTimeout(() => {
+      uploadPercent.value = 0
+    }, 800)
   }
 }
 
@@ -281,13 +329,51 @@ watch(
   }
 )
 
-onMounted(loadItem)
+onMounted(() => {
+  // 详情页「认领比对」里选好的图片，通过会话缓存带过来，避免重新选图
+  const pendingFiles = takeClaimProofFiles()
+
+  if (pendingFiles.length) {
+    form.proofFiles = pendingFiles
+    form.proofImages = pendingFiles.map(file => URL.createObjectURL(file))
+  }
+
+  loadItem()
+})
 </script>
 
 <template>
   <AppLoading :visible="pageLoading" text="加载物品信息..." />
 
-  <div v-if="item" class="claim-apply-page container">
+  <ErrorState
+    v-if="!pageLoading && loadError"
+    class="container"
+    title="物品信息加载失败"
+    desc="网络异常或该信息已被移除，请稍后重试。"
+    @retry="loadItem"
+  />
+
+  <EmptyState
+    v-else-if="!pageLoading && !item && !blockedReason"
+    class="container"
+    title="未找到该物品"
+    desc="链接可能已失效，或该信息已被下架。"
+    button-text="浏览失物大厅"
+    @action="router.push('/items')"
+  />
+
+  <section v-else-if="blockedReason" class="claim-blocked container">
+    <div class="glass-card blocked-card" role="status">
+      <h1>暂时无法提交申请</h1>
+      <p>{{ blockedReason }}</p>
+      <div class="blocked-actions">
+        <el-button v-if="item" type="primary" @click="router.push(`/items/${item.id}`)">返回物品详情</el-button>
+        <el-button @click="router.push('/items')">浏览其他信息</el-button>
+      </div>
+    </div>
+  </section>
+
+  <div v-else-if="item" class="claim-apply-page container">
     <section class="claim-hero fade-up">
       <div>
         <span class="kicker">认领与线索处理</span>
@@ -418,6 +504,11 @@ onMounted(loadItem)
           ，确认所填信息真实有效。
         </el-checkbox>
 
+        <div v-if="uploadPercent" class="upload-progress" role="status" aria-live="polite">
+          <div class="upload-bar"><i :style="{ width: `${uploadPercent}%` }" /></div>
+          <span>{{ uploadPercent >= 100 ? '凭证上传完成' : `凭证上传中 ${uploadPercent}%` }}</span>
+        </div>
+
         <div class="form-actions">
           <el-button @click="$router.back()">返回</el-button>
           <el-button type="primary" :loading="loading" :disabled="!form.agree" @click="submit">
@@ -467,6 +558,61 @@ onMounted(loadItem)
 <style scoped>
 .claim-apply-page {
   padding-top: 42px;
+}
+
+.claim-blocked {
+  padding-top: 80px;
+  padding-bottom: 80px;
+}
+
+.blocked-card {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 34px;
+  text-align: center;
+}
+
+.blocked-card h1 {
+  margin: 0 0 12px;
+  font-size: 26px;
+}
+
+.blocked-card p {
+  margin: 0 0 22px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.blocked-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.upload-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(79, 124, 255, .16);
+  overflow: hidden;
+}
+
+.upload-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--primary-strong), #5b54e8);
+  transition: width .2s ease;
 }
 
 .claim-hero {

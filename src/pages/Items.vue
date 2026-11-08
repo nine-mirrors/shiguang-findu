@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -233,6 +233,15 @@ async function load() {
     items.value = normalizeItems(res)
 
     await loadFavorites()
+
+    // 深链接里带了超出范围的页码时，回落到最后一页，避免出现空白列表
+    const maxPage = Math.max(1, Math.ceil(items.value.length / pageSize))
+
+    if (page.value > maxPage) {
+      lastState = { query: { ...query }, page: maxPage }
+      page.value = maxPage
+      router.replace({ query: buildRouteQuery(query, maxPage) })
+    }
   } catch {
     items.value = []
     loadError.value = true
@@ -265,7 +274,7 @@ function syncRoute() {
   load()
 }
 
-function applyFilters() {
+function applyFilters({ replace = false } = {}) {
   const nextQuery = { ...query }
   const nextState = { query: nextQuery, page: 1 }
 
@@ -277,8 +286,28 @@ function applyFilters() {
     return
   }
 
-  router.push({ query: buildRouteQuery(nextQuery, 1) })
+  const navigate = replace ? router.replace : router.push
+
+  navigate({ query: buildRouteQuery(nextQuery, 1) })
 }
+
+let keywordTimer = null
+
+function handleKeywordInput() {
+  clearTimeout(keywordTimer)
+  keywordTimer = setTimeout(() => {
+    applyFilters({ replace: true })
+  }, 400)
+}
+
+function clearKeyword() {
+  clearTimeout(keywordTimer)
+  applyFilters({ replace: true })
+}
+
+onBeforeUnmount(() => {
+  clearTimeout(keywordTimer)
+})
 
 function handlePageChange(value) {
   if (value === readRouteState().page) return
@@ -311,9 +340,11 @@ watch(() => route.query, syncRoute)
         v-model="query.keyword"
         size="large"
         clearable
+        aria-label="搜索物品名称、地点、描述关键词"
         placeholder="搜索物品名称、地点、描述关键词"
+        @input="handleKeywordInput"
         @keyup.enter="applyFilters"
-        @clear="applyFilters"
+        @clear="clearKeyword"
       />
 
       <el-select v-model="query.type" size="large" placeholder="类型" @change="applyFilters">

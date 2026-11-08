@@ -2,21 +2,25 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getItemDetailApi, getItemsApi } from '@/api/item'
+import { getItemDetailApi, getSimilarItemsApi } from '@/api/item'
 import { getFavoritesApi, addFavoriteApi, removeFavoriteApi } from '@/api/favorite'
-import { findSimilarItems } from '@/utils/match'
 import { formatDateTime } from '@/utils/format'
+import { resolveImageUrl } from '@/utils/image'
 import { useUserStore } from '@/stores/user'
 import StatusTimeline from '@/components/StatusTimeline.vue'
 import ItemCard from '@/components/ItemCard.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
 import ClaimComparePanel from '@/components/ClaimComparePanel.vue'
 import AppLoading from '@/components/AppLoading.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 
 const route = useRoute()
 const userStore = useUserStore()
 
 const pageLoading = ref(true)
+const loadError = ref(false)
+const notFound = ref(false)
 const item = ref(null)
 const similar = ref([])
 const favorite = ref(false)
@@ -38,17 +42,7 @@ const itemCategory = computed(() => {
   return item.value?.category_name || '其他'
 })
 
-const getFullImageUrl = url => {
-  if (!url) return ''
-  if (/^https?:\/\//.test(url)) return url
-
-  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
-
-  if (url.startsWith('/storage/')) return `${baseURL}${url}`
-  if (url.startsWith('storage/')) return `${baseURL}/${url}`
-
-  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
-}
+const getFullImageUrl = url => resolveImageUrl(url)
 
 const itemImage = computed(() => {
   let url = ''
@@ -113,13 +107,6 @@ function normalizeItem(res) {
   return payload?.item || payload || null
 }
 
-function normalizeItems(res) {
-  const payload = res?.data || res
-  const list = payload?.list || payload?.data || payload?.items || payload || []
-
-  return Array.isArray(list) ? list : []
-}
-
 function normalizeFavorites(res) {
   const payload = res?.data || res
   const list = payload?.list || payload?.data || payload?.items || payload || []
@@ -128,12 +115,21 @@ function normalizeFavorites(res) {
 }
 
 async function loadSimilar() {
-  const res = await getItemsApi({
-    page: 1,
-    page_size: 100
-  })
+  if (!item.value?.id) {
+    similar.value = []
+    return
+  }
 
-  similar.value = findSimilarItems(item.value, normalizeItems(res), 3)
+  try {
+    // 后端打分：类型互补 + 同分类 + 名称关键词 + 地点相近，最多 6 条
+    const res = await getSimilarItemsApi(item.value.id)
+    const payload = res?.data || res
+
+    similar.value = (payload?.items || []).slice(0, 3)
+  } catch {
+    // 相似推荐属于增强信息，失败不影响详情主流程
+    similar.value = []
+  }
 }
 
 async function loadFavorite() {
@@ -142,18 +138,25 @@ async function loadFavorite() {
     return
   }
 
-  const res = await getFavoritesApi()
-  const list = normalizeFavorites(res)
+  try {
+    const res = await getFavoritesApi()
+    const list = normalizeFavorites(res)
 
-  favorite.value = list.some(favoriteItem => {
-    const currentId = favoriteItem.item_id || favoriteItem.itemId || favoriteItem.item?.id || favoriteItem.id
+    favorite.value = list.some(favoriteItem => {
+      const currentId = favoriteItem.item_id || favoriteItem.itemId || favoriteItem.item?.id || favoriteItem.id
 
-    return String(currentId) === String(item.value.id)
-  })
+      return String(currentId) === String(item.value.id)
+    })
+  } catch {
+    favorite.value = false
+  }
 }
 
 async function load() {
   pageLoading.value = true
+  loadError.value = false
+  notFound.value = false
+  similar.value = []
 
   try {
     const res = await getItemDetailApi(route.params.id)
@@ -161,7 +164,7 @@ async function load() {
     item.value = normalizeItem(res)
 
     if (!item.value) {
-      ElMessage.error('未找到该物品信息')
+      notFound.value = true
       return
     }
 
@@ -170,7 +173,8 @@ async function load() {
       loadFavorite()
     ])
   } catch {
-    ElMessage.error('加载物品详情失败')
+    item.value = null
+    loadError.value = true
   } finally {
     pageLoading.value = false
   }
@@ -196,6 +200,8 @@ async function toggleFav() {
       favorite.value = true
       ElMessage.success('已加入收藏夹')
     }
+  } catch {
+    // 错误提示已在 request.js 拦截器中统一处理
   } finally {
     favoriteLoading.value = false
   }
@@ -219,10 +225,26 @@ watch(() => route.params.id, load)
 <template>
   <AppLoading :visible="pageLoading" text="加载物品详情..." />
 
-  <div class="detail-page container" v-if="item">
+  <ErrorState
+    v-if="!pageLoading && loadError"
+    title="详情加载失败"
+    desc="网络或服务暂时不可用，物品信息没有丢失，可以重新加载。"
+    button-text="重新加载"
+    @retry="load"
+  />
+
+  <EmptyState
+    v-else-if="!pageLoading && notFound"
+    title="未找到该物品"
+    desc="这条信息可能已被删除或链接有误。"
+    button-text="返回失物大厅"
+    @action="$router.push('/items')"
+  />
+
+  <div class="detail-page container" v-else-if="item">
     <section class="detail-hero fade-up">
       <div class="detail-visual" :class="itemType">
-        <img v-if="itemImage" :src="itemImage" alt="物品照片" class="clickable-image" @click="openPreview(itemImage)" />
+        <img v-if="itemImage" :src="itemImage" :alt="`${item.name} 的物品照片`" class="clickable-image" @click="openPreview(itemImage)" />
 
         <div v-else class="fallback-large">
           <span>{{ itemCategory }}</span>
@@ -330,7 +352,7 @@ watch(() => route.params.id, load)
       <div class="section-title">
         <div>
           <h2>相关信息参考</h2>
-          <p>根据分类、地点、时间和描述关键词整理相近信息，仅供用户进一步核对。</p>
+          <p>按类型互补、分类、名称关键词与地点自动匹配，点开可核对是否为同一物品。</p>
         </div>
       </div>
 
@@ -524,7 +546,11 @@ watch(() => route.params.id, load)
   }
 
   .detail-visual {
-    min-height: 260px;
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    aspect-ratio: 4 / 3;
+    border-radius: 26px;
   }
 }
 </style>

@@ -205,6 +205,11 @@ const router = createRouter({
           path: 'analytics',
           name: 'AdminAnalytics',
           component: () => import('@/pages/AdminAnalytics.vue')
+        },
+        {
+          path: 'logs',
+          name: 'AdminLogs',
+          component: () => import('@/pages/AdminLogs.vue')
         }
       ]
     },

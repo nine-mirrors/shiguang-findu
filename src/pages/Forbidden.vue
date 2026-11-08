@@ -31,21 +31,21 @@ const goLogin = async () => {
 
 <template>
   <div class="forbidden-page">
-    <section class="forbidden-card fade-up">
-      <div class="decor decor-left"></div>
-      <div class="decor decor-right"></div>
+    <section class="forbidden-card fade-up" aria-labelledby="forbidden-title">
+      <div class="decor decor-left" aria-hidden="true"></div>
+      <div class="decor decor-right" aria-hidden="true"></div>
 
       <div class="status-block">
         <div class="icon-wrap">
           <LineIcon name="shield" tone="orange" />
         </div>
 
-        <div class="status-code">403</div>
+        <div class="status-code" aria-hidden="true">403</div>
       </div>
 
       <span class="kicker">访问受限</span>
 
-      <h1>当前账号没有访问权限</h1>
+      <h1 id="forbidden-title">当前账号没有访问权限</h1>
 
       <p class="summary">
         你正在访问受权限保护的页面。普通用户不能进入管理员后台，管理员账号也不参与普通用户端的发布、认领和收藏流程。
@@ -154,9 +154,9 @@ const goLogin = async () => {
   z-index: 1;
   margin: 18px 0 14px;
   color: var(--ink);
-  font-size: clamp(34px, 5vw, 56px);
-  line-height: 1.08;
-  letter-spacing: -.055em;
+  font-size: clamp(32px, 5vw, 52px);
+  line-height: 1.16;
+  letter-spacing: -.03em;
 }
 
 .summary {
@@ -166,6 +166,7 @@ const goLogin = async () => {
   margin: 0 auto;
   color: var(--muted);
   line-height: 1.85;
+  overflow-wrap: anywhere;
 }
 
 .reason-box {
@@ -222,7 +223,7 @@ const goLogin = async () => {
   box-shadow: 0 14px 30px rgba(79, 124, 255, .22);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 620px) {
   .forbidden-page {
     padding: 24px 16px;
   }

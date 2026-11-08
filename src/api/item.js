@@ -142,7 +142,7 @@ export const deleteItemApi = id => {
  * - 不传 base64 字符串
  * - 后端返回 image_url 后，列表和详情接口也应返回对应图片字段
  */
-export const uploadItemImagesApi = (id, images = []) => {
+export const uploadItemImagesApi = (id, images = [], config = {}) => {
   const formData = new FormData()
 
   images
@@ -154,6 +154,25 @@ export const uploadItemImagesApi = (id, images = []) => {
   return request.post(`/api/lost-found/items/${id}/images`, formData, {
     headers: {
       'Content-Type': 'multipart/form-data'
-    }
+    },
+    ...config
+  })
+}
+
+/**
+ * 相似物品：详情页使用，由后端按「类型互补 + 同分类 + 名称关键词 + 地点」打分
+ * 接口：GET /api/lost-found/items/{id}/similar
+ */
+export const getSimilarItemsApi = id => {
+  return request.get(`/api/lost-found/items/${id}/similar`)
+}
+
+/**
+ * 相似物品预检：发布页在物品创建前即时匹配，避免重复发布
+ * 接口：GET /api/lost-found/items/similar?type=&name=&location=&categoryId=
+ */
+export const previewSimilarItemsApi = params => {
+  return request.get('/api/lost-found/items/similar', {
+    params
   })
 }

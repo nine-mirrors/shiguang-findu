@@ -3,9 +3,11 @@ import { onMounted, ref } from 'vue'
 import { getFavoritesApi } from '@/api/favorite'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import ErrorState from '@/components/ErrorState.vue'
 
 const items = ref([])
 const loading = ref(false)
+const loadError = ref(false)
 
 const normalizeFavorites = res => {
   const payload = res?.data || res
@@ -22,12 +24,15 @@ const normalizeFavoriteItems = list => {
 
 const loadFavorites = async () => {
   loading.value = true
+  loadError.value = false
 
   try {
     const res = await getFavoritesApi()
     const list = normalizeFavorites(res)
 
     items.value = normalizeFavoriteItems(list)
+  } catch {
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -68,6 +73,14 @@ onMounted(loadFavorites)
         </template>
       </el-skeleton>
     </section>
+
+    <ErrorState
+      v-else-if="loadError"
+      title="收藏夹加载失败"
+      desc="暂时没能取回收藏列表，可以重新加载。"
+      button-text="重新加载"
+      @retry="loadFavorites"
+    />
 
     <TransitionGroup v-else-if="items.length" name="list" tag="section" class="item-grid">
       <div v-for="item in items" :key="item.id" class="favorite-card-wrap">

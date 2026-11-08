@@ -1,12 +1,19 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getCategoriesApi } from '@/api/category'
-import { createItemApi, getItemDetailApi, updateItemApi, uploadItemImagesApi } from '@/api/item'
+import {
+  createItemApi,
+  getItemDetailApi,
+  previewSimilarItemsApi,
+  updateItemApi,
+  uploadItemImagesApi
+} from '@/api/item'
 import PhotoUploader from '@/components/PhotoUploader.vue'
 import RetentionBadge from '@/components/RetentionBadge.vue'
 import AppLoading from '@/components/AppLoading.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import { storage } from '@/utils/storage'
 
 const props = defineProps({
@@ -25,6 +32,7 @@ const editItemId = computed(() => props.editId || route.params.id)
 const formRef = ref()
 const loading = ref(false)
 const pageLoading = ref(false)
+const loadError = ref(false)
 const categoryList = ref([])
 const draftSavedAt = ref('')
 
@@ -158,6 +166,60 @@ const assistText = computed(() => {
 
   return '信息完整度较高。提交后进入待审核，管理员通过后展示在失物大厅。'
 })
+
+const similarHints = ref([])
+const similarLoading = ref(false)
+let similarTimer = null
+
+const clearSimilarTimer = () => {
+  if (similarTimer) {
+    clearTimeout(similarTimer)
+    similarTimer = null
+  }
+}
+
+/**
+ * 发布前相似提示：物品还没入库，用当前表单字段即时匹配已通过审核的互补信息。
+ * 目的：避免同一物品被重复发布，也让失主在提交前就发现可能已有人招领。
+ */
+const refreshSimilarHints = () => {
+  clearSimilarTimer()
+
+  const name = form.name.trim()
+
+  if (isEditMode.value || name.length < 2) {
+    similarHints.value = []
+    similarLoading.value = false
+    return
+  }
+
+  similarTimer = setTimeout(async () => {
+    similarLoading.value = true
+
+    try {
+      const res = await previewSimilarItemsApi({
+        type: form.type,
+        name,
+        location: form.location,
+        categoryId: form.categoryId || undefined
+      })
+      const payload = res?.data || res
+
+      similarHints.value = Array.isArray(payload?.items) ? payload.items : []
+    } catch {
+      similarHints.value = []
+    } finally {
+      similarLoading.value = false
+    }
+  }, 500)
+}
+
+watch(
+  () => [form.type, form.name, form.categoryId, form.location],
+  refreshSimilarHints
+)
+
+onBeforeUnmount(clearSimilarTimer)
 
 const normalizeCategories = res => {
   const list = res?.data || res || []
@@ -295,6 +357,27 @@ const loadCategories = async () => {
   }
 }
 
+const uploadPercent = ref(0)
+
+/** 图片上传带进度：进入 1%，上传中按 loaded/total 更新，完成后短暂显示 100% */
+const uploadImagesWithProgress = async itemId => {
+  uploadPercent.value = 1
+
+  try {
+    await uploadItemImagesApi(itemId, getImageList(), {
+      onUploadProgress: event => {
+        if (!event.total) return
+        uploadPercent.value = Math.min(99, Math.round((event.loaded / event.total) * 100))
+      }
+    })
+    uploadPercent.value = 100
+  } finally {
+    setTimeout(() => {
+      uploadPercent.value = 0
+    }, 800)
+  }
+}
+
 const submit = async () => {
   if (loading.value) return
 
@@ -326,7 +409,7 @@ const submit = async () => {
 
       if (getImageList().length) {
         try {
-          await uploadItemImagesApi(editItemId.value, getImageList())
+          await uploadImagesWithProgress(editItemId.value)
         } catch {
           ElMessage.warning('信息已更新，但图片上传失败')
         }
@@ -342,7 +425,7 @@ const submit = async () => {
 
     if (createdItem?.id && getImageList().length) {
       try {
-        await uploadItemImagesApi(createdItem.id, getImageList())
+        await uploadImagesWithProgress(createdItem.id)
       } catch {
         ElMessage.warning('信息已提交，但图片上传失败，可稍后在我的发布中补充')
         router.push('/my-posts')
@@ -364,6 +447,7 @@ const loadEditData = async () => {
   if (!isEditMode.value) return
 
   pageLoading.value = true
+  loadError.value = false
 
   try {
     const res = await getItemDetailApi(editItemId.value)
@@ -391,8 +475,7 @@ const loadEditData = async () => {
       isValuable: item.is_valuable || item.isValuable || false
     })
   } catch {
-    ElMessage.error('加载物品信息失败')
-    router.push('/my-posts')
+    loadError.value = true
   } finally {
     pageLoading.value = false
   }
@@ -436,7 +519,15 @@ watch(
 <template>
   <AppLoading :visible="pageLoading" :text="isEditMode ? '加载物品信息...' : '加载中...'" />
 
-  <div class="publish-page container">
+  <ErrorState
+    v-if="!pageLoading && loadError"
+    title="发布信息加载失败"
+    desc="暂时无法读取这条发布内容，可以重试，或先返回我的发布。"
+    button-text="重新加载"
+    @retry="loadEditData"
+  />
+
+  <div v-else class="publish-page container">
     <section class="page-head fade-up">
       <span class="kicker">{{ isEditMode ? '编辑信息 · 修改发布' : '分步骤发布 · 照片比对' }}</span>
 
@@ -486,6 +577,27 @@ watch(
           <el-form-item label="物品名称" prop="name">
             <el-input v-model.trim="form.name" maxlength="30" show-word-limit placeholder="例如：黑色无线耳机" />
           </el-form-item>
+
+          <div v-if="similarHints.length || similarLoading" class="similar-hint" role="status" aria-live="polite">
+            <div class="similar-hint-head">
+              <strong>可能已有相关信息</strong>
+              <small v-if="similarLoading">匹配中…</small>
+            </div>
+
+            <ul>
+              <li v-for="hint in similarHints" :key="hint.id">
+                <router-link :to="`/items/${hint.id}`">{{ hint.name }}</router-link>
+                <span>
+                  {{ hint.location || '未填写地点' }}
+                  <template v-if="hint.matchReasons && hint.matchReasons.length">
+                    · {{ hint.matchReasons.join('、') }}
+                  </template>
+                </span>
+              </li>
+            </ul>
+
+            <p>命中同一条物品时，直接联系对方认领或归还即可，避免重复发布。</p>
+          </div>
 
           <div class="two-col">
             <el-form-item label="物品分类" prop="categoryId">
@@ -551,6 +663,11 @@ watch(
             <el-form-item label="风险标记">
               <el-checkbox v-model="form.isValuable">贵重物品，认领时加强核验</el-checkbox>
             </el-form-item>
+          </div>
+
+          <div v-if="uploadPercent" class="upload-progress" role="status" aria-live="polite">
+            <div class="upload-bar"><i :style="{ width: `${uploadPercent}%` }" /></div>
+            <span>{{ uploadPercent >= 100 ? '图片上传完成' : `图片上传中 ${uploadPercent}%` }}</span>
           </div>
 
           <div class="submit-line">
@@ -722,6 +839,90 @@ watch(
   text-align: right;
   color: var(--muted);
   font-size: 13px;
+}
+
+.similar-hint {
+  margin: -6px 0 18px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(79, 124, 255, .22);
+  background: rgba(79, 124, 255, .07);
+}
+
+.similar-hint-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.similar-hint-head small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.similar-hint ul {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.similar-hint li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.similar-hint a {
+  color: var(--primary-strong);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.similar-hint a:hover {
+  text-decoration: underline;
+}
+
+.similar-hint li span {
+  color: var(--muted);
+}
+
+.similar-hint p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.upload-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(79, 124, 255, .16);
+  overflow: hidden;
+}
+
+.upload-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--primary-strong), #5b54e8);
+  transition: width .2s ease;
 }
 
 .preview-panel {

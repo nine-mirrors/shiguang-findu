@@ -133,6 +133,156 @@ router.get(
   })
 )
 
+/** 名称二元组：中文没有空格分词，用相邻两字切分做近似匹配 */
+function nameTokens(text) {
+  const clean = String(text || '').replace(/[\s\p{P}]/gu, '')
+  const grams = new Set()
+  for (let index = 0; index < clean.length - 1; index += 1) {
+    grams.add(clean.slice(index, index + 2))
+  }
+  return grams
+}
+
+/** 相似度打分：类型互补、同分类、名称相近、地点相近 */
+function scoreSimilar(base, candidate) {
+  const reasons = []
+  let score = 0
+
+  const oppositeType = base.type === 'lost' ? 'found' : base.type === 'found' ? 'lost' : ''
+  if (oppositeType && candidate.type === oppositeType) {
+    score += 2
+    reasons.push('失物 / 招领正好互补')
+  }
+
+  if (base.categoryId && candidate.categoryId === base.categoryId) {
+    score += 3
+    reasons.push('同一分类')
+  }
+
+  const baseTokens = nameTokens(base.name)
+  const tokens = nameTokens(candidate.name)
+  let overlap = 0
+  tokens.forEach(token => {
+    if (baseTokens.has(token)) overlap += 1
+  })
+  if (overlap > 0) {
+    score += Math.min(4, overlap)
+    reasons.push('名称关键词相近')
+  }
+
+  const baseLocation = String(base.location || '').trim()
+  const candidateLocation = String(candidate.location || '').trim()
+  if (
+    baseLocation &&
+    candidateLocation &&
+    (candidateLocation.includes(baseLocation) || baseLocation.includes(candidateLocation))
+  ) {
+    score += 2
+    reasons.push('地点相同或相近')
+  }
+
+  return { score, reasons }
+}
+
+/** 发布页相似提示：物品还没创建，按表单字段即时匹配 */
+router.get(
+  '/similar',
+  wrap(async (req, res) => {
+    const query = req.query || {}
+    const type = ITEM_TYPES.includes(String(query.type)) ? String(query.type) : ''
+    const name = String(query.name || '').trim().slice(0, 60)
+    const location = String(query.location || '').trim().slice(0, 100)
+    const categoryId = readId(query.categoryId ?? query.category_id)
+
+    if (!name && !categoryId) {
+      return res.json({ total: 0, items: [] })
+    }
+
+    const oppositeType = type === 'lost' ? 'found' : type === 'found' ? 'lost' : ''
+    const candidates = await prisma.item.findMany({
+      where: {
+        auditStatus: 'approved',
+        status: { in: ['open', 'claiming'] },
+        ...(oppositeType || categoryId
+          ? {
+              OR: [
+                ...(oppositeType ? [{ type: oppositeType }] : []),
+                ...(categoryId ? [{ categoryId }] : [])
+              ]
+            }
+          : {})
+      },
+      include: itemInclude,
+      orderBy: { createdAt: 'desc' },
+      take: 60
+    })
+
+    const items = candidates
+      .map(candidate => {
+        const { score, reasons } = scoreSimilar({ type, name, location, categoryId }, candidate)
+        return { candidate, score, reasons }
+      })
+      .filter(entry => entry.score >= 2)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(({ candidate, score, reasons }) => ({
+        ...serializeItem(candidate),
+        matchScore: score,
+        matchReasons: reasons
+      }))
+
+    res.json({ total: items.length, items })
+  })
+)
+
+router.get(
+  '/:id/similar',
+  wrap(async (req, res) => {
+    const id = assertId(req.params.id, '未找到该信息')
+
+    const item = await prisma.item.findUnique({ where: { id }, select: {
+      id: true,
+      type: true,
+      name: true,
+      location: true,
+      categoryId: true
+    } })
+    if (!item) throw new HttpError(404, '未找到该信息')
+
+    const oppositeType = item.type === 'lost' ? 'found' : 'lost'
+    const candidates = await prisma.item.findMany({
+      where: {
+        id: { not: id },
+        auditStatus: 'approved',
+        status: { in: ['open', 'claiming'] },
+        OR: [
+          { type: oppositeType },
+          ...(item.categoryId ? [{ categoryId: item.categoryId }] : [])
+        ]
+      },
+      include: itemInclude,
+      orderBy: { createdAt: 'desc' },
+      take: 60
+    })
+
+    const items = candidates
+      .map(candidate => {
+        const { score, reasons } = scoreSimilar(item, candidate)
+        return { candidate, score, reasons }
+      })
+      .filter(entry => entry.score >= 2)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6)
+      .map(({ candidate, score, reasons }) => ({
+        ...serializeItem(candidate),
+        matchScore: score,
+        matchReasons: reasons
+      }))
+
+    res.json({ total: items.length, items })
+  })
+)
+
 router.get(
   '/:id',
   optionalAuthenticate,

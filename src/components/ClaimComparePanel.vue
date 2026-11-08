@@ -3,6 +3,8 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import PhotoUploader from './PhotoUploader.vue'
+import { resolveImageUrl } from '@/utils/image'
+import { setClaimProofFiles } from '@/utils/claimDraft'
 
 const props = defineProps({
   item: {
@@ -23,17 +25,7 @@ const actionText = computed(() => {
   return itemType.value === 'found' ? '提交认领申请' : '提交线索'
 })
 
-const getFullImageUrl = url => {
-  if (!url) return ''
-  if (/^https?:\/\//.test(url)) return url
-
-  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
-
-  if (url.startsWith('/storage/')) return `${baseURL}${url}`
-  if (url.startsWith('storage/')) return `${baseURL}/${url}`
-
-  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
-}
+const getFullImageUrl = url => resolveImageUrl(url)
 
 const itemImage = computed(() => {
   let url = ''
@@ -98,9 +90,8 @@ const goClaim = () => {
     query.proofText = proofText.value.trim()
   }
 
-  if (proofImages.value.length) {
-    query.proofImages = JSON.stringify(proofImages.value)
-  }
+  // File 无法放进 query，用会话内缓存带到认领页，再由认领页真正上传
+  setClaimProofFiles(proofFiles.value)
 
   router.push({
     path: `/items/${props.item.id}/claim`,

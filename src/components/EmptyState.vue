@@ -20,8 +20,8 @@
   </script>
 
   <template>
-    <div class="empty-state">
-      <div class="empty-illustration float-slow">🔎</div>
+    <div class="empty-state" role="status">
+      <div class="empty-illustration float-slow" aria-hidden="true">🔎</div>
 
       <h3>{{ props.title }}</h3>
 

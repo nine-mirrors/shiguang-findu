@@ -1,12 +1,20 @@
 import { Router } from 'express'
 import { prisma } from '../db.js'
 import { authenticate } from '../middleware/auth.js'
+import {
+  itemImageUpload,
+  collectUploadedFiles,
+  toPublicPath,
+  assertImageFiles,
+  removeUploadedFiles
+} from '../middleware/upload.js'
 import { HttpError, wrap } from '../utils/http.js'
 import { serializeClaim } from '../utils/serialize.js'
 import { findActiveBlacklist, blockedMessage } from '../utils/blacklist.js'
 import { assertId, readId, optionalText, optionalPhone, optionalUrl } from '../utils/validate.js'
 
 const router = Router()
+const MAX_PROOF_IMAGES = 5
 const itemInclude = {
   category: true,
   user: { select: { id: true, username: true, avatar: true } }
@@ -19,6 +27,54 @@ function computeScore({ proofImage, proofText }) {
   const textScore = Math.min(34, String(proofText || '').length / 4)
   return Math.min(96, Math.round(base + textScore))
 }
+
+/**
+ * 读取认领凭证图片地址列表。
+ * 只接受服务端已落盘、可持久化的地址：blob: / data: 是浏览器临时 URL，
+ * 存进数据库后必然失效，直接丢弃，避免历史上「凭证上传成功但详情空白」的问题。
+ */
+function readProofImages(value) {
+  if (value === undefined || value === null || value === '') return []
+  if (!Array.isArray(value)) {
+    throw new HttpError(422, 'proofImages 必须是数组', { errors: { proofImages: '凭证格式不正确' } })
+  }
+
+  return value
+    .map(item => String(item ?? '').trim())
+    .filter(Boolean)
+    .filter(url => !/^(blob:|data:)/i.test(url))
+    .filter(url => url.length <= 300)
+    .slice(0, MAX_PROOF_IMAGES)
+}
+
+/** 认领凭证图片上传：返回可直接写入 claims.proof_images 的相对地址 */
+router.post(
+  '/proofs',
+  authenticate,
+  itemImageUpload,
+  wrap(async (req, res) => {
+    const files = collectUploadedFiles(req)
+
+    try {
+      if (!files.length) {
+        throw new HttpError(422, '请选择要上传的凭证图片', { errors: { images: '请选择图片' } })
+      }
+
+      assertImageFiles(files)
+
+      const paths = files.map(toPublicPath).slice(0, MAX_PROOF_IMAGES)
+      const base = `${req.protocol}://${req.get('host')}`
+
+      res.status(201).json({
+        images: paths,
+        urls: paths.map(path => `${base}${path}`)
+      })
+    } catch (error) {
+      removeUploadedFiles(files)
+      throw error
+    }
+  })
+)
 
 router.post(
   '/',
@@ -55,18 +111,30 @@ router.post(
       })
     }
 
-    const method = payload.method === 'mail' ? 'mail' : 'offline'
-    const claimType = payload.claimType === 'wrong_return' ? 'wrong_return' : 'claim'
+    // 兼容三套字段名：method / pickupMethod / pickup_method；
+    // 前端“邮寄”传的是 delivery，这里统一映射为库内的 mail。
+    const methodRaw = String(
+      payload.method ?? payload.pickupMethod ?? payload.pickup_method ?? 'offline'
+    ).trim()
+    const method = ['mail', 'delivery', 'express'].includes(methodRaw) ? 'mail' : 'offline'
+
+    // clue（我有线索）是独立申请类型，不能落成 claim，否则管理端会把线索当认领去核验
+    const typeRaw = String(payload.claimType ?? payload.claim_type ?? 'claim').trim()
+    const claimType = typeRaw === 'wrong_return' ? 'wrong_return' : typeRaw === 'clue' ? 'clue' : 'claim'
+
     const proofText = optionalText(payload.proofText ?? payload.proof_text, {
       field: 'proofText',
       label: '证明材料',
       max: 1000
     })
-    const proofImage = optionalUrl(payload.proofImage ?? payload.proof_image, {
-      field: 'proofImage',
-      label: '证明图片',
-      max: 300
-    })
+    const proofImages = readProofImages(payload.proofImages ?? payload.proof_images)
+    const proofImage =
+      proofImages[0] ||
+      optionalUrl(payload.proofImage ?? payload.proof_image, {
+        field: 'proofImage',
+        label: '证明图片',
+        max: 300
+      })
     const phone = optionalPhone(payload.phone)
     const deliveryAddress =
       method === 'mail'
@@ -92,6 +160,7 @@ router.post(
         method,
         proofText,
         proofImage,
+        proofImages: JSON.stringify(proofImages),
         deliveryAddress,
         phone,
         status: 'pending',

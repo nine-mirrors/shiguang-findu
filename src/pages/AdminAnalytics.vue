@@ -1,8 +1,8 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import LineIcon from '@/components/LineIcon.vue'
-import AppLoading from '@/components/AppLoading.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { getAdminAnalyticsApi } from '@/api/admin'
 
@@ -19,8 +19,20 @@ const data = ref({
 })
 
 const loading = ref(false)
+const loaded = ref(false)
 const error = ref('')
 const activeTab = ref('overview')
+
+const firstLoading = computed(() => loading.value && !loaded.value)
+
+const formatNumber = value => {
+  const num = Number(value)
+  return Number.isFinite(num) ? num.toLocaleString('zh-CN') : value
+}
+
+const trendHasData = computed(() => {
+  return data.value.dailyTrend.some(row => row.items > 0 || row.claims > 0)
+})
 
 const STATUS_LABELS = {
   open: '寻找中',
@@ -285,6 +297,7 @@ const load = async () => {
   try {
     const res = await getAdminAnalyticsApi()
     data.value = normalizeAnalytics(res)
+    loaded.value = true
   } catch (err) {
     console.error('数据分析加载失败:', err)
     error.value = err?.response?.status === 404
@@ -300,29 +313,45 @@ onMounted(load)
 </script>
 
 <template>
-  <AppLoading :visible="loading" text="加载数据分析..." />
-
   <div class="analytics-page fade-up">
-    <EmptyState
-      v-if="error && !loading"
-      icon="chart"
-      title="数据加载失败"
+    <ErrorState
+      v-if="error && !loaded"
+      title="数据分析加载失败"
       :desc="error"
+      @retry="load"
     />
 
-    <template v-if="!error">
+    <template v-else-if="firstLoading">
+      <section class="metric-grid" aria-busy="true" aria-label="核心指标加载中">
+        <div v-for="n in 4" :key="n" class="metric-card glass-card metric-skeleton">
+          <el-skeleton animated>
+            <template #template>
+              <el-skeleton-item variant="circle" class="skeleton-icon" />
+              <el-skeleton-item variant="text" style="width: 52%" />
+              <el-skeleton-item variant="h1" style="width: 72%" />
+            </template>
+          </el-skeleton>
+        </div>
+      </section>
+
+      <section class="glass-card panel" aria-busy="true" aria-label="图表数据加载中">
+        <el-skeleton :rows="6" animated />
+      </section>
+    </template>
+
+    <template v-else>
       <!-- 核心指标卡片 -->
       <section class="metric-grid">
         <div class="metric-card glass-card">
           <LineIcon name="users" tone="blue" />
           <span>活跃用户</span>
-          <b>{{ data.activeUsers }}</b>
+          <b>{{ formatNumber(data.activeUsers) }}</b>
         </div>
 
         <div class="metric-card glass-card">
           <LineIcon name="chart" tone="green" />
           <span>认领成功率</span>
-          <b>{{ data.successRate }}%</b>
+          <b>{{ formatNumber(data.successRate) }}%</b>
         </div>
 
         <div class="metric-card glass-card">
@@ -334,12 +363,12 @@ onMounted(load)
         <div class="metric-card glass-card">
           <LineIcon name="alert" tone="red" />
           <span>风险用户</span>
-          <b>{{ data.riskUsers }}</b>
+          <b>{{ formatNumber(data.riskUsers) }}</b>
         </div>
       </section>
 
       <!-- Tab 切换 -->
-      <div class="tab-bar">
+      <div class="tab-bar" role="group" aria-label="数据分析维度切换">
         <button
           v-for="tab in [
             { key: 'overview', label: '总览' },
@@ -351,6 +380,7 @@ onMounted(load)
           ]"
           :key="tab.key"
           :class="['tab-btn', { active: activeTab === tab.key }]"
+          :aria-pressed="activeTab === tab.key"
           @click="activeTab = tab.key"
         >
           {{ tab.label }}
@@ -367,14 +397,13 @@ onMounted(load)
             <div v-for="item in data.itemStatusStats" :key="item.name" class="bar-row">
               <el-tag :type="statusType(item.type)" size="small">{{ item.name }}</el-tag>
               <div><i :style="{ width: barWidth(item.value, data.itemStatusStats) }"></i></div>
-              <b>{{ item.value }}<small>{{ item.percent }}%</small></b>
+              <b>{{ formatNumber(item.value) }}<small>{{ item.percent }}%</small></b>
             </div>
 
             <EmptyState
               v-if="!data.itemStatusStats.length"
-              icon="box"
-              title="暂无数据"
-              desc="物品状态数据为空"
+              title="暂无物品状态数据"
+              desc="当前没有可统计的物品状态，发布信息或完成审核后会生成分布数据。"
             />
           </div>
 
@@ -385,14 +414,13 @@ onMounted(load)
             <div v-for="stage in data.claimStages" :key="stage.name" class="stage-row">
               <LineIcon :name="stageIcon(stage.name)" :tone="stageTone(stage.name)" />
               <span>{{ stage.name }}</span>
-              <b>{{ stage.value }}</b>
+              <b>{{ formatNumber(stage.value) }}</b>
             </div>
 
             <EmptyState
               v-if="!data.claimStages.length"
-              icon="route"
-              title="暂无数据"
-              desc="认领阶段数据为空"
+              title="暂无认领阶段数据"
+              desc="当前没有认领申请记录，认领审核通过后会显示各阶段数量。"
             />
           </div>
         </section>
@@ -407,14 +435,13 @@ onMounted(load)
           <div v-for="item in data.itemStatusStats" :key="item.name" class="bar-row">
             <el-tag :type="statusType(item.type)" size="small">{{ item.name }}</el-tag>
             <div><i :style="{ width: barWidth(item.value, data.itemStatusStats) }"></i></div>
-            <b>{{ item.value }}<small>{{ item.percent }}%</small></b>
+            <b>{{ formatNumber(item.value) }}<small>{{ item.percent }}%</small></b>
           </div>
 
           <EmptyState
             v-if="!data.itemStatusStats.length"
-            icon="box"
-            title="暂无数据"
-            desc="物品状态数据为空"
+            title="暂无物品状态数据"
+            desc="当前没有可统计的物品状态，发布信息或完成审核后会生成分布数据。"
           />
         </section>
       </template>
@@ -428,14 +455,13 @@ onMounted(load)
           <div v-for="stage in data.claimStages" :key="stage.name" class="stage-row">
             <LineIcon :name="stageIcon(stage.name)" :tone="stageTone(stage.name)" />
             <span>{{ stage.name }}</span>
-            <b>{{ stage.value }}</b>
+            <b>{{ formatNumber(stage.value) }}</b>
           </div>
 
           <EmptyState
             v-if="!data.claimStages.length"
-            icon="route"
-            title="暂无数据"
-            desc="认领阶段数据为空"
+            title="暂无认领阶段数据"
+            desc="当前没有认领申请记录，认领审核通过后会显示各阶段数量。"
           />
         </section>
       </template>
@@ -451,7 +477,7 @@ onMounted(load)
               <div class="hot-location-header">
                 <LineIcon name="pin" tone="purple" />
                 <span>{{ location.name }}</span>
-                <b>{{ location.value }} 件</b>
+                <b>{{ formatNumber(location.value) }} 件</b>
               </div>
               <div class="hot-location-bar">
                 <i :style="{ width: barWidth(location.value, data.hotLocations) }"></i>
@@ -461,16 +487,15 @@ onMounted(load)
 
           <EmptyState
             v-else
-            icon="pin"
-            title="暂无热点数据"
-            desc="后端暂未提供地点聚合数据，请联系后端开发添加 hot_locations 字段。"
+            title="暂无热点区域数据"
+            desc="暂未统计到丢失地点，有新的失物或招领发布后会自动聚合热点区域。"
           />
         </section>
       </template>
 
       <!-- 趋势 Tab -->
       <template v-if="activeTab === 'trend'">
-        <section v-if="data.dailyTrend.length" class="glass-card panel trend-panel">
+        <section v-if="data.dailyTrend.length && trendHasData" class="glass-card panel trend-panel">
           <h2>近7日数据趋势</h2>
           <p>每日新增物品 / 认领数量变化。</p>
 
@@ -488,11 +513,11 @@ onMounted(load)
               <div class="trend-bars">
                 <div class="trend-bar-wrapper">
                   <div class="trend-bar items" :style="{ height: trendBarHeight(item.items) }"></div>
-                  <span class="trend-value">{{ item.items }}</span>
+                  <span class="trend-value">{{ formatNumber(item.items) }}</span>
                 </div>
                 <div class="trend-bar-wrapper">
                   <div class="trend-bar claims" :style="{ height: trendBarHeight(item.claims) }"></div>
-                  <span class="trend-value">{{ item.claims }}</span>
+                  <span class="trend-value">{{ formatNumber(item.claims) }}</span>
                 </div>
               </div>
               <span class="trend-date">{{ shortDate(item.date) }}</span>
@@ -502,9 +527,8 @@ onMounted(load)
 
         <EmptyState
           v-else
-          icon="chart"
           title="暂无趋势数据"
-          desc="近7日数据为空"
+          desc="近 7 日没有新增发布或认领记录，产生数据后会自动生成趋势图。"
         />
       </template>
 
@@ -538,7 +562,8 @@ onMounted(load)
 <style scoped>
 .analytics-page {
   display: grid;
-  gap: 20px;
+  gap: 18px;
+  min-width: 0;
 }
 
 .metric-grid {
@@ -551,7 +576,23 @@ onMounted(load)
   padding: 22px;
   display: grid;
   gap: 9px;
+  min-width: 0;
   background: #fff;
+}
+
+.metric-skeleton {
+  align-content: start;
+}
+
+.metric-skeleton :deep(.el-skeleton) {
+  display: grid;
+  gap: 12px;
+}
+
+.skeleton-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
 }
 
 .metric-card :deep(.line-icon) {
@@ -574,6 +615,7 @@ onMounted(load)
   display: flex;
   gap: 8px;
   padding: 4px;
+  overflow-x: auto;
   background: rgba(255, 255, 255, 0.7);
   border-radius: 14px;
   backdrop-filter: blur(12px);
@@ -582,6 +624,7 @@ onMounted(load)
 
 .tab-btn {
   flex: 1;
+  min-height: 40px;
   padding: 10px 20px;
   border: none;
   border-radius: 10px;
@@ -589,8 +632,9 @@ onMounted(load)
   color: var(--muted);
   font-weight: 700;
   font-size: 14px;
+  white-space: nowrap;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: background .18s ease, color .18s ease, box-shadow .18s ease;
 }
 
 .tab-btn:hover {
@@ -704,8 +748,10 @@ onMounted(load)
 
 .hot-location-header span {
   flex: 1;
+  min-width: 0;
   font-weight: 700;
   color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 .hot-location-header b {
@@ -730,6 +776,7 @@ onMounted(load)
 
 /* 趋势图 */
 .trend-panel {
+  min-width: 0;
   overflow-x: auto;
 }
 
@@ -840,12 +887,15 @@ onMounted(load)
   margin: 8px 0 0;
 }
 
-@media (max-width: 920px) {
-  .metric-grid,
+@media (max-width: 960px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .analysis-grid,
   .advice-grid,
   .hot-location-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .trend-chart {
@@ -854,6 +904,48 @@ onMounted(load)
 
   .tab-bar {
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 620px) {
+  .analytics-page {
+    gap: 16px;
+  }
+
+  .metric-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .metric-card {
+    padding: 18px;
+  }
+
+  .panel {
+    padding: 18px;
+  }
+
+  .tab-bar {
+    flex-wrap: nowrap;
+    border-radius: 12px;
+  }
+
+  .tab-btn {
+    flex: 0 0 auto;
+    padding: 10px 16px;
+  }
+
+  .bar-row {
+    grid-template-columns: 72px minmax(0, 1fr) 88px;
+    gap: 10px;
+  }
+
+  .trend-chart {
+    gap: 10px;
+    padding-bottom: 8px;
+  }
+
+  .hot-location-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

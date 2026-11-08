@@ -82,9 +82,10 @@ const flow = [
     <section class="glass-card flow-card">
       <h2>失物招领完整流程</h2>
 
-      <div class="flow-line">
-        <div v-for="(step, index) in flow" :key="step.title" class="flow-step">
-          <b>{{ index + 1 }}</b>
+      <div class="flow-line" role="list">
+        <div v-for="(step, index) in flow" :key="step.title" class="flow-step" role="listitem">
+          <b aria-hidden="true">{{ index + 1 }}</b>
+          <span class="sr-only">第 {{ index + 1 }} 步</span>
 
           <h3>{{ step.title }}</h3>
 
@@ -176,13 +177,13 @@ const flow = [
 .guide-hero h1 {
   margin: 18px 0;
   font-size: clamp(32px, 4vw, 48px);
-  line-height: .98;
-  letter-spacing: -.065em;
+  line-height: 1.16;
+  letter-spacing: -.03em;
 }
 
 .guide-hero p {
   color: var(--muted);
-  line-height: 1.85;
+  line-height: 1.8;
   font-size: 17px;
 }
 
@@ -190,15 +191,16 @@ const flow = [
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin: 30px 0;
+  margin: 24px 0;
 }
 
 .guide-card {
-  padding: 22px;
+  padding: 24px;
 }
 
 .guide-card h2 {
   margin: 16px 0 8px;
+  font-size: 20px;
 }
 
 .guide-card p,
@@ -207,27 +209,28 @@ const flow = [
 .agreement-card li,
 .agreement-card p {
   color: var(--muted);
-  line-height: 1.85;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
 }
 
 .flow-card,
 .legal-card,
 .agreement-card {
-  padding: 28px;
-  margin-top: 22px;
+  padding: 24px;
+  margin-top: 24px;
 }
 
 .flow-line {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
   margin-top: 18px;
 }
 
 .flow-step {
   position: relative;
   padding: 18px;
-  border-radius: 22px;
+  border-radius: 24px;
   background: rgba(79, 124, 255, .06);
 }
 
@@ -243,34 +246,36 @@ const flow = [
 
 .flow-step h3 {
   margin: 14px 0 8px;
+  font-size: 17px;
 }
 
 .flow-step p {
+  margin: 0;
   color: var(--muted);
-  line-height: 1.7;
+  line-height: 1.8;
 }
 
 .rule-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 22px;
-  margin-top: 22px;
+  gap: 18px;
+  margin-top: 24px;
 }
 
 .rule-card {
-  padding: 28px;
+  padding: 24px;
 }
 
 .legal-list {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  gap: 16px;
   margin-top: 18px;
 }
 
 .legal-list div {
   padding: 18px;
-  border-radius: 22px;
+  border-radius: 24px;
   background: rgba(0, 184, 148, .07);
 }
 
@@ -281,7 +286,16 @@ const flow = [
 
 .legal-list span {
   color: var(--muted);
-  line-height: 1.7;
+  line-height: 1.8;
+}
+
+.agreement-card ol {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.agreement-card li {
+  margin-bottom: 8px;
 }
 
 @media (max-width: 960px) {
@@ -296,11 +310,36 @@ const flow = [
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 620px) {
+  .guide-page {
+    padding-top: 28px;
+  }
+
+  .guide-hero h1 {
+    font-size: 30px;
+    line-height: 1.26;
+  }
+
+  .guide-hero p {
+    font-size: 15.5px;
+  }
+
   .guide-grid,
   .flow-line,
   .legal-list {
     grid-template-columns: 1fr;
+  }
+
+  .guide-card,
+  .flow-card,
+  .legal-card,
+  .agreement-card,
+  .rule-card {
+    padding: 20px;
+  }
+
+  .flow-step {
+    padding: 16px;
   }
 }
 </style>

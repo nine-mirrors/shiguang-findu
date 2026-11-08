@@ -92,21 +92,20 @@ const startCountdown = () => {
 const sendCode = async () => {
   if (countdown.value > 0 || codeLoading.value) return
 
-  codeLoading.value = true
-
   try {
     await formRef.value.validateField('email')
   } catch {
-    codeLoading.value = false
     return
   }
+
+  codeLoading.value = true
 
   try {
     await sendEmailCodeApi(form.email, 'register')
     ElMessage.success('验证码已发送，请查看邮箱')
     startCountdown()
   } catch {
-    ElMessage.error('发送验证码失败，请重试')
+    // 错误提示已由 request.js 统一处理
   } finally {
     codeLoading.value = false
   }
@@ -115,10 +114,12 @@ const sendCode = async () => {
 const submit = async () => {
   if (loading.value) return
 
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
+
   loading.value = true
 
   try {
-    await formRef.value.validate()
     await userStore.register(form)
     ElMessage.success('注册成功')
     router.push('/home')
@@ -165,18 +166,26 @@ onBeforeUnmount(clearTimer)
         </div>
       </div>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="form-box" @keyup.enter="submit">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-position="top"
+        class="form-box"
+        :validate-on-rule-change="false"
+        @keyup.enter="submit"
+      >
         <div class="form-title">
-          <b>注册账号</b>
+          <h2>注册账号</h2>
           <span>请填写基本信息完成账号创建</span>
         </div>
 
         <el-form-item label="用户名" prop="username">
-          <el-input v-model.trim="form.username" size="large" maxlength="10" show-word-limit placeholder="例如：李同学" />
+          <el-input v-model.trim="form.username" size="large" maxlength="10" show-word-limit autocomplete="nickname" placeholder="例如：李同学" />
         </el-form-item>
 
         <el-form-item label="邮箱" prop="email">
-          <el-input v-model.trim="form.email" size="large" placeholder="用于登录和接收通知" />
+          <el-input v-model.trim="form.email" size="large" autocomplete="email" placeholder="用于登录和接收通知" />
         </el-form-item>
 
         <el-form-item label="邮箱验证码" prop="emailCode">
@@ -190,17 +199,17 @@ onBeforeUnmount(clearTimer)
         </el-form-item>
 
         <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" show-password size="large" placeholder="请输入密码" />
+          <el-input v-model="form.password" type="password" show-password size="large" autocomplete="new-password" placeholder="请输入密码" />
         </el-form-item>
 
         <el-form-item label="确认密码" prop="password_confirmation">
-          <el-input v-model="form.password_confirmation" type="password" show-password size="large" placeholder="请再次输入密码" />
+          <el-input v-model="form.password_confirmation" type="password" show-password size="large" autocomplete="new-password" placeholder="请再次输入密码" />
         </el-form-item>
 
         <el-form-item prop="agreement" class="agreement-item">
           <el-checkbox v-model="form.agreement">
             我已阅读并同意
-            <router-link class="agreement-link" to="/guide" target="_blank" @click.stop>
+            <router-link class="agreement-link" to="/guide" target="_blank" rel="noopener noreferrer" @click.stop>
               《平台规则与用户须知》
             </router-link>
           </el-checkbox>
@@ -287,8 +296,8 @@ onBeforeUnmount(clearTimer)
   margin: 22px 0 16px;
   color: var(--ink);
   font-size: clamp(36px, 5vw, 58px);
-  line-height: 1.06;
-  letter-spacing: -.06em;
+  line-height: 1.14;
+  letter-spacing: -.03em;
 }
 
 .copy p {
@@ -333,10 +342,11 @@ onBeforeUnmount(clearTimer)
   margin-bottom: 20px;
 }
 
-.form-title b {
-  display: block;
+.form-title h2 {
+  margin: 0;
   color: var(--ink);
   font-size: 24px;
+  line-height: 1.3;
 }
 
 .form-title span {
@@ -355,6 +365,22 @@ onBeforeUnmount(clearTimer)
 
 .agreement-item {
   margin-top: -4px;
+}
+
+.agreement-item :deep(.el-checkbox) {
+  height: auto;
+  align-items: flex-start;
+  white-space: normal;
+}
+
+.agreement-item :deep(.el-checkbox__label) {
+  white-space: normal;
+  line-height: 1.7;
+  word-break: break-word;
+}
+
+.agreement-item :deep(.el-checkbox__input) {
+  margin-top: 2px;
 }
 
 .agreement-link {
@@ -392,7 +418,7 @@ onBeforeUnmount(clearTimer)
   text-decoration: underline;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 960px) {
   .auth-page {
     padding: 24px 16px;
   }
@@ -407,18 +433,18 @@ onBeforeUnmount(clearTimer)
   .form-box {
     padding: 24px;
   }
+}
 
+@media (max-width: 620px) {
   .code-line {
     grid-template-columns: 1fr;
   }
-}
 
-@media (max-width: 520px) {
   .copy h1 {
     font-size: 36px;
   }
 
-  .form-title b {
+  .form-title h2 {
     font-size: 22px;
   }
 }

@@ -319,3 +319,20 @@ export const getAdminUsersApi = params => {
     params
   })
 }
+
+/**
+ * 管理员操作日志
+ * 接口：GET /api/admin/logs
+ * 参数：page / page_size / keyword / targetType
+ */
+export const getAdminLogsApi = params => {
+  return request.get('/api/admin/logs', { params })
+}
+
+/**
+ * 手动触发逾期扫描
+ * 接口：POST /api/admin/maintenance/overdue-scan
+ */
+export const triggerOverdueScanApi = () => {
+  return request.post('/api/admin/maintenance/overdue-scan')
+}

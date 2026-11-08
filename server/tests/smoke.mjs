@@ -1078,6 +1078,123 @@ async function main() {
     assertStatus(dispute, 404, 'resolve missing dispute')
   })
 
+  /* ==================== 相似匹配 / 凭证上传 / 日志 / 逾期扫描 ==================== */
+
+  await test('相似匹配：GET /api/lost-found/items/:id/similar', async () => {
+    const res = await request('GET', `/api/lost-found/items/${ctx.seedItemId}/similar`)
+    assertStatus(res, 200, 'similar items')
+    expect(Array.isArray(res.data.items), '应返回 items 数组')
+    expect(
+      res.data.items.every(row => row.matchScore >= 2 && Array.isArray(row.matchReasons)),
+      '相似结果应带 matchScore 与 matchReasons'
+    )
+  })
+
+  await test('相似匹配：发布页预检 GET /api/lost-found/items/similar', async () => {
+    const res = await request(
+      'GET',
+      '/api/lost-found/items/similar?type=found&name=%E8%80%B3%E6%9C%BA&location=%E5%9B%BE%E4%B9%A6%E9%A6%86'
+    )
+    assertStatus(res, 200, 'preview similar')
+    expect(Array.isArray(res.data.items), '预检应返回 items 数组')
+  })
+
+  await test('相似匹配：不存在的物品返回 404', async () => {
+    const res = await request('GET', '/api/lost-found/items/999999/similar')
+    assertStatus(res, 404, 'similar missing item')
+  })
+
+  await test('凭证上传：POST /api/claims/proofs 返回可持久化地址', async () => {
+    const form = new FormData()
+    form.append('images', new Blob([PNG], { type: 'image/png' }), 'proof.png')
+
+    const res = await request('POST', '/api/claims/proofs', {
+      token: ctx.studentToken,
+      form
+    })
+    assertStatus(res, 201, 'upload claim proofs')
+    expect(Array.isArray(res.data.images) && res.data.images.length === 1, '应返回 1 张凭证地址')
+    expect(res.data.images[0].startsWith('/uploads/'), '凭证地址应落在 /uploads/ 下')
+    ctx.proofImagePath = res.data.images[0]
+  })
+
+  await test('凭证上传：未登录返回 401', async () => {
+    const form = new FormData()
+    form.append('images', new Blob([PNG], { type: 'image/png' }), 'proof.png')
+
+    const res = await request('POST', '/api/claims/proofs', { form })
+    assertStatus(res, 401, 'upload proofs without token')
+  })
+
+  await test('认领凭证：多图落库且过滤 blob 临时地址', async () => {
+    const publish = await request('POST', '/api/lost-found/items', {
+      token: ctx.studentToken,
+      body: {
+        type: 'found',
+        name: '冒烟测试-凭证上传物品',
+        category: '其他',
+        location: '图书馆'
+      }
+    })
+    assertStatus(publish, 201, 'publish proof item')
+
+    const approve = await request('PUT', `/api/admin/items/${publish.data.id}/audit`, {
+      token: ctx.adminToken,
+      body: { status: 'approved' }
+    })
+    assertStatus(approve, 200, 'approve proof item')
+
+    const res = await request('POST', '/api/claims', {
+      token: ctx.wangToken,
+      body: {
+        itemId: publish.data.id,
+        pickup_method: 'delivery',
+        delivery_address: '一号宿舍楼 302',
+        proofText: '物品内侧有一张贴纸，购买记录见凭证图片。',
+        phone: '13900002222',
+        proof_images: ['blob:http://localhost/fake', ctx.proofImagePath]
+      }
+    })
+
+    assertStatus(res, 201, 'claim with proofs')
+    expect(res.data.proofImages.length === 1, 'blob: 地址应被过滤，仅保留服务端地址')
+    expect(res.data.proofImages[0] === ctx.proofImagePath, '凭证地址应与上传结果一致')
+    expect(res.data.method === 'mail', 'pickup_method=delivery 应映射为 mail')
+    expect(res.data.deliveryAddress === '一号宿舍楼 302', '邮寄地址应落库')
+  })
+
+  await test('管理员日志：GET /api/admin/logs 返回操作留痕', async () => {
+    const res = await request('GET', '/api/admin/logs?page_size=50', { token: ctx.adminToken })
+    assertStatus(res, 200, 'admin logs')
+    expect(Array.isArray(res.data.list), '应返回 list 数组')
+    expect(res.data.total > 0, '前面的审核操作应产生日志')
+    expect(
+      res.data.list.every(row => row.action && row.createdAt),
+      '日志应包含操作与时间'
+    )
+  })
+
+  await test('管理员日志：学生无权访问（403）', async () => {
+    const res = await request('GET', '/api/admin/logs', { token: ctx.studentToken })
+    assertStatus(res, 403, 'student admin logs')
+  })
+
+  await test('逾期扫描：管理员可手动触发', async () => {
+    const res = await request('POST', '/api/admin/maintenance/overdue-scan', {
+      token: ctx.adminToken
+    })
+    assertStatus(res, 200, 'overdue scan')
+    expect(res.data.success === true, '应返回 success')
+    expect(typeof res.data.scanned === 'number', '应返回扫描数量')
+  })
+
+  await test('逾期扫描：学生无权触发（403）', async () => {
+    const res = await request('POST', '/api/admin/maintenance/overdue-scan', {
+      token: ctx.studentToken
+    })
+    assertStatus(res, 403, 'student overdue scan')
+  })
+
   console.log(`\n=== 结果：通过 ${passCount}，失败 ${failCount} ===`)
   if (failCount) {
     console.log('\n失败明细：')

@@ -1,11 +1,11 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ElImageViewer } from 'element-plus'
 import { formatDateTime } from '@/utils/format'
+import { resolveImageUrl } from '@/utils/image'
 import LineIcon from '@/components/LineIcon.vue'
-import AppLoading from '@/components/AppLoading.vue'
+import ErrorState from '@/components/ErrorState.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import {
   auditAdminClaimApi,
   auditAdminItemApi,
@@ -22,12 +22,10 @@ const props = defineProps({
   }
 })
 
-const router = useRouter()
-
 const active = ref(props.tab || 'items')
 const loading = ref(false)
-const pageLoading = ref(false)
 const keyword = ref('')
+const error = ref('')
 
 const items = ref([])
 const claims = ref([])
@@ -101,17 +99,7 @@ const runAction = async (scope, id, task) => {
 
 const isDialogCancel = error => error === 'cancel' || error === 'close'
 
-const getFullImageUrl = url => {
-  if (!url) return ''
-  if (/^https?:\/\//.test(url)) return url
-
-  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
-
-  if (url.startsWith('/storage/')) return `${baseURL}${url}`
-  if (url.startsWith('storage/')) return `${baseURL}/${url}`
-
-  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
-}
+const getFullImageUrl = url => resolveImageUrl(url)
 
 const getAuditStatus = item => item.auditStatus || item.audit_status || 'pending'
 
@@ -293,6 +281,16 @@ const emptyText = computed(() => {
   }
 })
 
+const emptyDesc = computed(() => {
+  if (keyword.value.trim()) {
+    return '没有匹配当前关键词的记录，可以清空搜索或切换筛选条件后再试。'
+  }
+
+  return active.value === 'items'
+    ? '切换上方的状态筛选，可以查看其它审核状态的发布信息。'
+    : '切换上方的状态筛选，可以查看其它状态的认领申请。'
+})
+
 const loadItems = async () => {
   const res = await getAdminItemsApi()
   items.value = normalizeList(res)
@@ -305,16 +303,18 @@ const loadClaims = async () => {
 
 const load = async () => {
   loading.value = true
-  pageLoading.value = true
+  error.value = ''
 
   try {
     await Promise.all([
       loadItems(),
       loadClaims()
     ])
+  } catch {
+    error.value = '审核列表加载失败，请检查网络连接后重试。'
+    ElMessage.error('加载审核列表失败')
   } finally {
     loading.value = false
-    pageLoading.value = false
   }
 }
 
@@ -329,7 +329,12 @@ const applyItemAudit = async (item, auditStatus, rejectReason = '') => {
 }
 
 const audit = async (item, auditStatus, rejectReason = '') => {
-  return runAction('item', item.id, () => applyItemAudit(item, auditStatus, rejectReason))
+  try {
+    return await runAction('item', item.id, () => applyItemAudit(item, auditStatus, rejectReason))
+  } catch {
+    ElMessage.error('操作失败，请稍后重试')
+    return false
+  }
 }
 
 const openReject = item => {
@@ -358,7 +363,7 @@ const confirmReject = async () => {
 const markDuplicate = async item => {
   try {
     await runAction('item', item.id, async () => {
-      await ElMessageBox.confirm(`确认将「${item.name}」标记为疑似重复并拒绝？`, '疑似重复确认', {
+      await ElMessageBox.confirm(`确认将「${item.name}」标记为疑似重复并拒绝？拒绝后该信息将不再公开展示。`, '疑似重复确认', {
         type: 'warning',
         confirmButtonText: '确认拒绝',
         cancelButtonText: '取消'
@@ -376,7 +381,7 @@ const markDuplicate = async item => {
 const removeItem = async item => {
   try {
     await runAction('item', item.id, async () => {
-      await ElMessageBox.confirm(`确认删除「${item.name}」？删除后无法恢复。`, '删除确认', {
+      await ElMessageBox.confirm(`确认删除「${item.name}」？删除后该信息及其图片将无法恢复。`, '删除确认', {
         type: 'danger',
         confirmButtonText: '确认删除',
         cancelButtonText: '取消'
@@ -408,7 +413,12 @@ const applyClaimAudit = async (claim, status, auditReason = '') => {
 }
 
 const auditClaimRow = async (claim, status, auditReason = '') => {
-  return runAction('claim', claim.id, () => applyClaimAudit(claim, status, auditReason))
+  try {
+    return await runAction('claim', claim.id, () => applyClaimAudit(claim, status, auditReason))
+  } catch {
+    ElMessage.error('操作失败，请稍后重试')
+    return false
+  }
 }
 
 const approveClaim = async claim => {
@@ -522,6 +532,23 @@ const submitDispute = async () => {
   }
 }
 
+// 删除或筛选后当前页可能超出总页数，自动回落到最后一页
+const clampPage = (pageRef, total) => {
+  const maxPage = Math.max(1, Math.ceil(total / pageSize.value))
+  if (pageRef.value > maxPage) pageRef.value = maxPage
+}
+
+watch(filteredItemsTotal, total => clampPage(itemPage, total))
+watch(filteredClaimsTotal, total => clampPage(claimPage, total))
+
+watch([itemFilter, keyword], () => {
+  itemPage.value = 1
+})
+
+watch([claimFilter, keyword], () => {
+  claimPage.value = 1
+})
+
 watch(
   () => props.tab,
   value => {
@@ -533,47 +560,76 @@ onMounted(load)
 </script>
 
 <template>
-  <AppLoading :visible="pageLoading" text="加载审核列表..." />
-
   <div class="review-page fade-up">
-    <el-tabs v-model="active" class="admin-tabs">
+    <ErrorState
+      v-if="error && !loading"
+      title="审核数据加载失败"
+      :desc="error"
+      @retry="load"
+    />
+
+    <el-tabs v-else v-model="active" class="admin-tabs">
       <el-tab-pane label="内容审核" name="items">
-        <div class="review-overview">
+        <h2 class="sr-only">发布信息审核列表</h2>
+
+        <div class="review-overview" aria-label="发布信息审核概览">
           <button type="button" :class="{ active: itemFilter === 'all' }" @click="itemFilter = 'all'">
-            <b>{{ items.length }}</b>
+            <b>{{ loading ? '—' : items.length }}</b>
             <span>全部信息</span>
           </button>
 
           <button type="button" :class="{ active: itemFilter === 'pending' }" @click="itemFilter = 'pending'">
-            <b>{{ itemPendingCount }}</b>
+            <b>{{ loading ? '—' : itemPendingCount }}</b>
             <span>待审核信息</span>
           </button>
 
           <button type="button" :class="{ active: itemFilter === 'approved' }" @click="itemFilter = 'approved'">
-            <b>{{ itemApprovedCount }}</b>
+            <b>{{ loading ? '—' : itemApprovedCount }}</b>
             <span>已通过信息</span>
           </button>
 
           <button type="button" :class="{ active: itemFilter === 'rejected' }" @click="itemFilter = 'rejected'">
-            <b>{{ itemRejectedCount }}</b>
+            <b>{{ loading ? '—' : itemRejectedCount }}</b>
             <span>已拒绝信息</span>
           </button>
         </div>
 
         <div class="toolbar">
-  <div class="filter-pills">
-    <button type="button" :class="{ active: itemFilter === 'all' }" @click="itemFilter = 'all'">全部</button>
-    <button type="button" :class="{ active: itemFilter === 'pending' }" @click="itemFilter = 'pending'">待审核</button>
-    <button type="button" :class="{ active: itemFilter === 'approved' }" @click="itemFilter = 'approved'">已通过</button>
-    <button type="button" :class="{ active: itemFilter === 'rejected' }" @click="itemFilter = 'rejected'">已拒绝</button>
-  </div>
+          <div class="filter-pills" role="group" aria-label="按审核状态筛选发布信息">
+            <button type="button" :class="{ active: itemFilter === 'all' }" @click="itemFilter = 'all'">全部</button>
+            <button type="button" :class="{ active: itemFilter === 'pending' }" @click="itemFilter = 'pending'">待审核</button>
+            <button type="button" :class="{ active: itemFilter === 'approved' }" @click="itemFilter = 'approved'">已通过</button>
+            <button type="button" :class="{ active: itemFilter === 'rejected' }" @click="itemFilter = 'rejected'">已拒绝</button>
+          </div>
 
-  <el-input v-model="keyword" placeholder="搜索物品名称 / 地点 / 描述" clearable />
-</div>
+          <el-input v-model="keyword" placeholder="搜索物品名称 / 地点 / 描述" clearable aria-label="搜索发布信息" />
+        </div>
 
-        <section class="review-list">
+        <section v-if="loading" class="review-list" aria-busy="true" aria-label="发布审核列表加载中">
+          <el-skeleton v-for="n in 3" :key="n" animated class="skeleton-card glass-card">
+            <template #template>
+              <div class="skeleton-inner">
+                <el-skeleton-item variant="image" class="skeleton-thumb" />
+
+                <div class="skeleton-copy">
+                  <el-skeleton-item variant="h3" style="width: 38%" />
+                  <el-skeleton-item variant="text" style="width: 88%" />
+                  <el-skeleton-item variant="text" style="width: 64%" />
+                </div>
+              </div>
+            </template>
+          </el-skeleton>
+        </section>
+
+        <section v-else class="review-list">
+          <EmptyState
+            v-if="!filteredItems.length"
+            :title="emptyText"
+            :desc="emptyDesc"
+          />
+
           <div v-for="item in filteredItems" :key="item.id" class="review-row glass-card">
-            <img v-if="getImage(item)" :src="getImage(item)" alt="物品图" />
+            <img v-if="getImage(item)" :src="getImage(item)" :alt="`${item.name || '物品'}的发布图片`" />
 
             <div v-else class="placeholder">
               <LineIcon name="package" />
@@ -636,10 +692,6 @@ onMounted(load)
             </div>
           </div>
 
-          <div v-if="!loading && !filteredItems.length" class="empty-review">
-            {{ emptyText }}
-          </div>
-
           <div v-if="filteredItemsTotal > pageSize" class="pagination-bar">
             <el-pagination
               v-model:current-page="itemPage"
@@ -647,36 +699,39 @@ onMounted(load)
               :total="filteredItemsTotal"
               layout="prev, pager, next, jumper"
               background
+              aria-label="发布信息审核分页"
             />
           </div>
         </section>
       </el-tab-pane>
 
       <el-tab-pane label="认领核验" name="claims">
-        <div class="review-overview">
+        <h2 class="sr-only">认领申请核验列表</h2>
+
+        <div class="review-overview" aria-label="认领申请核验概览">
           <button type="button" :class="{ active: claimFilter === 'all' }" @click="claimFilter = 'all'">
-            <b>{{ claims.length }}</b>
+            <b>{{ loading ? '—' : claims.length }}</b>
             <span>全部申请</span>
           </button>
 
           <button type="button" :class="{ active: claimFilter === 'pending' }" @click="claimFilter = 'pending'">
-            <b>{{ claimPendingCount }}</b>
+            <b>{{ loading ? '—' : claimPendingCount }}</b>
             <span>待核验申请</span>
           </button>
 
           <button type="button" :class="{ active: claimFilter === 'handover' }" @click="claimFilter = 'handover'">
-            <b>{{ claimHandoverCount }}</b>
+            <b>{{ loading ? '—' : claimHandoverCount }}</b>
             <span>待交接申请</span>
           </button>
 
           <button type="button" :class="{ active: claimFilter === 'rejected' }" @click="claimFilter = 'rejected'">
-            <b>{{ claimRejectedCount }}</b>
+            <b>{{ loading ? '—' : claimRejectedCount }}</b>
             <span>已拒绝申请</span>
           </button>
         </div>
 
         <div class="toolbar">
-          <div class="filter-pills">
+          <div class="filter-pills" role="group" aria-label="按状态筛选认领申请">
             <button type="button" :class="{ active: claimFilter === 'all' }" @click="claimFilter = 'all'">全部</button>
             <button type="button" :class="{ active: claimFilter === 'pending' }" @click="claimFilter = 'pending'">待核验</button>
             <button type="button" :class="{ active: claimFilter === 'handover' }" @click="claimFilter = 'handover'">待交接</button>
@@ -684,10 +739,32 @@ onMounted(load)
             <button type="button" :class="{ active: claimFilter === 'completed' }" @click="claimFilter = 'completed'">已完成</button>
           </div>
 
-          <el-input v-model="keyword" placeholder="搜索关联物品 / 证明内容 / 联系电话" clearable />
+          <el-input v-model="keyword" placeholder="搜索关联物品 / 证明内容 / 联系电话" clearable aria-label="搜索认领申请" />
         </div>
 
-        <section class="review-list">
+        <section v-if="loading" class="review-list" aria-busy="true" aria-label="认领核验列表加载中">
+          <el-skeleton v-for="n in 3" :key="n" animated class="skeleton-card glass-card">
+            <template #template>
+              <div class="skeleton-inner">
+                <el-skeleton-item variant="image" class="skeleton-thumb" />
+
+                <div class="skeleton-copy">
+                  <el-skeleton-item variant="h3" style="width: 42%" />
+                  <el-skeleton-item variant="text" style="width: 86%" />
+                  <el-skeleton-item variant="text" style="width: 58%" />
+                </div>
+              </div>
+            </template>
+          </el-skeleton>
+        </section>
+
+        <section v-else class="review-list">
+          <EmptyState
+            v-if="!filteredClaims.length"
+            :title="emptyText"
+            :desc="emptyDesc"
+          />
+
           <div v-for="claim in filteredClaims" :key="claim.id" class="review-row glass-card claim-review">
             <div class="claim-icon">
               <LineIcon name="user-check" tone="green" />
@@ -746,10 +823,6 @@ onMounted(load)
             </div>
           </div>
 
-          <div v-if="!loading && !filteredClaims.length" class="empty-review">
-            {{ emptyText }}
-          </div>
-
           <div v-if="filteredClaimsTotal > pageSize" class="pagination-bar">
             <el-pagination
               v-model:current-page="claimPage"
@@ -757,20 +830,22 @@ onMounted(load)
               :total="filteredClaimsTotal"
               layout="prev, pager, next, jumper"
               background
+              aria-label="认领核验分页"
             />
           </div>
         </section>
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="rejectDialog" title="填写拒绝原因" width="460px">
-      <el-input v-model="rejectReason" type="textarea" :rows="4" placeholder="例如：图片不清晰、描述过少、疑似重复发布、包含敏感信息等" />
+    <el-dialog v-model="rejectDialog" title="填写拒绝原因" width="min(460px, 92vw)">
+      <el-input v-model="rejectReason" type="textarea" :rows="4" placeholder="例如：图片不清晰、描述过少、疑似重复发布、包含敏感信息等" aria-label="拒绝原因" />
 
       <template #footer>
         <el-button @click="rejectDialog = false">取消</el-button>
         <el-button
           type="danger"
           :loading="!!currentRejectItem && isActionLoading('item', currentRejectItem.id)"
+          :disabled="!!currentRejectItem && isActionLoading('item', currentRejectItem.id)"
           @click="confirmReject"
         >
           确认拒绝
@@ -778,12 +853,13 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="claimRejectDialog" title="填写认领驳回原因" width="480px">
+    <el-dialog v-model="claimRejectDialog" title="填写认领驳回原因" width="min(480px, 92vw)">
       <el-input
         v-model="claimRejectReason"
         type="textarea"
         :rows="4"
         placeholder="例如：证明材料不足、物品细节不一致、身份信息无法核验、联系方式无法确认等"
+        aria-label="认领驳回原因"
       />
 
       <template #footer>
@@ -791,6 +867,7 @@ onMounted(load)
         <el-button
           type="danger"
           :loading="!!currentRejectClaim && isActionLoading('claim', currentRejectClaim.id)"
+          :disabled="!!currentRejectClaim && isActionLoading('claim', currentRejectClaim.id)"
           @click="confirmRejectClaim"
         >
           确认驳回
@@ -798,8 +875,8 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="disputeDialog" title="登记争议" width="480px">
-      <p style="margin-bottom: 16px; color: var(--muted);">
+    <el-dialog v-model="disputeDialog" title="登记争议" width="min(480px, 92vw)">
+      <p class="dialog-tip">
         如果该认领申请存在纠纷（如多人同时认领、证明材料冲突等），请登记争议原因。
       </p>
       <el-input
@@ -807,15 +884,16 @@ onMounted(load)
         type="textarea"
         :rows="4"
         placeholder="例如：多人同时认领同一物品，证明材料冲突；物品归属存在疑问等"
+        aria-label="争议原因"
       />
 
       <template #footer>
         <el-button @click="disputeDialog = false">取消</el-button>
-        <el-button type="warning" :loading="disputeLoading" @click="submitDispute">确认登记</el-button>
+        <el-button type="warning" :loading="disputeLoading" :disabled="disputeLoading" @click="submitDispute">确认登记</el-button>
       </template>
     </el-dialog>
 
-    <el-dialog v-model="itemDetailDialog" title="物品详情" width="720px" class="item-detail-dialog" append-to-body>
+    <el-dialog v-model="itemDetailDialog" title="物品详情" width="min(720px, 94vw)" class="item-detail-dialog" append-to-body>
       <div v-if="currentItemDetail" class="detail-content">
         <div v-if="itemDetailImages.length" class="detail-images">
           <img
@@ -830,11 +908,11 @@ onMounted(load)
         <el-dialog
           v-model="imageViewerVisible"
           title="图片预览"
-          width="80%"
+          width="min(960px, 94vw)"
           destroy-on-close
           append-to-body
         >
-          <img :src="itemDetailImages[imageViewerIndex]" style="width: 100%; max-height: 70vh; object-fit: contain;" />
+          <img :src="itemDetailImages[imageViewerIndex]" alt="物品大图预览" class="detail-preview" />
         </el-dialog>
 
         <div class="detail-info">
@@ -873,10 +951,14 @@ onMounted(load)
 </template>
 
 <style scoped>
+.review-page {
+  min-width: 0;
+}
+
 .review-overview {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  gap: 16px;
   margin-bottom: 16px;
   padding: 6px;
 }
@@ -888,7 +970,7 @@ onMounted(load)
   background: linear-gradient(135deg, rgba(79, 124, 255, .09), rgba(0, 184, 148, .05));
   text-align: left;
   cursor: pointer;
-  transition: .22s ease;
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
 }
 
 .review-overview button:hover,
@@ -901,6 +983,7 @@ onMounted(load)
 .review-overview b {
   display: block;
   font-size: 25px;
+  font-variant-numeric: tabular-nums;
 }
 
 .review-overview span {
@@ -924,6 +1007,7 @@ onMounted(load)
 
 .filter-pills button {
   min-width: 76px;
+  min-height: 40px;
   padding: 9px 16px;
   border: 1px solid rgba(79, 124, 255, .14);
   border-radius: 999px;
@@ -931,7 +1015,7 @@ onMounted(load)
   color: #64748b;
   font-weight: 900;
   cursor: pointer;
-  transition: .22s ease;
+  transition: color .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
 }
 
 .filter-pills button:hover {
@@ -956,7 +1040,8 @@ onMounted(load)
 
 .review-list {
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  min-width: 0;
 }
 
 .review-row {
@@ -1010,17 +1095,24 @@ onMounted(load)
 
 .title b {
   font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.review-body {
+  min-width: 0;
 }
 
 .review-body p {
   color: var(--muted);
   line-height: 1.7;
   margin: 9px 0;
+  overflow-wrap: anywhere;
 }
 
 .meta,
 .privacy-line {
   color: #8b95a7;
+  overflow-wrap: anywhere;
 }
 
 .privacy-line,
@@ -1030,6 +1122,7 @@ onMounted(load)
   padding: 8px 12px;
   border-radius: 14px;
   line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 
 .privacy-line {
@@ -1056,43 +1149,50 @@ onMounted(load)
   flex-wrap: wrap;
 }
 
-.empty-review {
-  min-height: 160px;
-  display: grid;
-  place-items: center;
-  padding: 30px;
-  border: 1px dashed rgba(79, 124, 255, .24);
-  border-radius: 22px;
-  background: rgba(248, 251, 255, .72);
-  color: var(--muted);
+.actions :deep(.el-button) {
+  min-height: 40px;
+  border-radius: 999px;
   font-weight: 800;
+}
+
+.skeleton-card {
+  padding: 18px;
+  background: #fff;
+}
+
+.skeleton-inner {
+  display: grid;
+  grid-template-columns: 106px 1fr;
+  gap: 18px;
+  align-items: center;
+}
+
+.skeleton-thumb {
+  width: 106px;
+  height: 86px;
+  border-radius: 18px;
+}
+
+.skeleton-copy {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
 }
 
 .pagination-bar {
   display: flex;
   justify-content: center;
+  max-width: 100%;
   padding: 20px 0 10px;
+  overflow-x: auto;
 }
 
-@media (max-width: 880px) {
-  .review-overview {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .toolbar {
-    grid-template-columns: 1fr;
-  }
-
-  .review-row {
-    grid-template-columns: 1fr;
-  }
-
-  .actions {
-    justify-content: flex-start;
-  }
+.dialog-tip {
+  margin: 0 0 16px;
+  color: var(--muted);
+  line-height: 1.7;
 }
 
-/* 物品详情弹窗 */
 .detail-content {
   max-height: 60vh;
   overflow-y: auto;
@@ -1112,7 +1212,7 @@ onMounted(load)
   border-radius: 12px;
   background: #f8fbff;
   cursor: zoom-in;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform .18s ease, box-shadow .18s ease;
 }
 
 .detail-images img:hover {
@@ -1120,9 +1220,16 @@ onMounted(load)
   box-shadow: 0 4px 16px rgba(79, 124, 255, 0.25);
 }
 
+.detail-preview {
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
 .detail-info h3 {
   margin: 0 0 12px;
   font-size: 22px;
+  overflow-wrap: anywhere;
 }
 
 .detail-tags {
@@ -1139,6 +1246,7 @@ onMounted(load)
   padding: 14px;
   border-radius: 16px;
   background: rgba(248, 251, 255, .72);
+  overflow-wrap: anywhere;
 }
 
 .detail-meta {
@@ -1153,6 +1261,7 @@ onMounted(load)
   border-radius: 14px;
   background: rgba(79, 124, 255, .06);
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .detail-contact {
@@ -1161,9 +1270,77 @@ onMounted(load)
   background: rgba(0, 184, 148, .08);
   color: #047857;
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 960px) {
+  .review-overview {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+
+  .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .review-row {
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 620px) {
+  .admin-tabs {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .review-overview {
+    grid-template-columns: 1fr;
+    padding: 0;
+  }
+
+  .review-row {
+    padding: 16px;
+    gap: 14px;
+  }
+
+  .review-row img,
+  .placeholder,
+  .claim-icon {
+    width: 100%;
+    height: 160px;
+  }
+
+  .review-row img {
+    object-fit: cover;
+    border-radius: 16px;
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+    min-height: 42px;
+  }
+
+  .skeleton-inner {
+    grid-template-columns: 1fr;
+  }
+
+  .skeleton-thumb {
+    width: 100%;
+    height: 140px;
+  }
+
   .detail-meta {
     grid-template-columns: 1fr;
   }

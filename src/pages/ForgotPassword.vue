@@ -136,9 +136,18 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="form-box">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-position="top"
+        class="form-box"
+        :validate-on-rule-change="false"
+        @submit.prevent
+        @keyup.enter="submit"
+      >
         <div class="form-title">
-          <b>密码重置</b>
+          <h2>密码重置</h2>
           <span>请填写注册邮箱并完成验证码校验</span>
         </div>
 
@@ -146,6 +155,7 @@ onBeforeUnmount(() => {
           <el-input
             v-model.trim="form.email"
             size="large"
+            autocomplete="email"
             placeholder="请输入注册时使用的邮箱"
           />
         </el-form-item>
@@ -175,6 +185,7 @@ onBeforeUnmount(() => {
             type="password"
             show-password
             size="large"
+            autocomplete="new-password"
             placeholder="请输入新密码"
           />
         </el-form-item>
@@ -185,11 +196,12 @@ onBeforeUnmount(() => {
             type="password"
             show-password
             size="large"
+            autocomplete="new-password"
             placeholder="请再次输入新密码"
           />
         </el-form-item>
 
-        <el-button type="primary" size="large" class="submit-btn" :loading="loading" @click="submit">
+        <el-button type="primary" size="large" class="submit-btn" :loading="loading" :disabled="loading" @click="submit">
           重置密码
         </el-button>
 
@@ -242,10 +254,8 @@ onBeforeUnmount(() => {
   margin: 18px 0 14px;
   color: var(--ink);
   font-size: clamp(34px, 5vw, 56px);
-  line-height: 1.06;
-  letter-spacing: normal;
-  text-align: center;
-  opacity: 0.77;
+  line-height: 1.14;
+  letter-spacing: -.03em;
 }
 
 .brand-panel p {
@@ -289,10 +299,11 @@ onBeforeUnmount(() => {
   margin-bottom: 20px;
 }
 
-.form-title b {
-  display: block;
+.form-title h2 {
+  margin: 0;
   color: var(--ink);
   font-size: 22px;
+  line-height: 1.3;
 }
 
 .form-title span {
@@ -320,15 +331,23 @@ onBeforeUnmount(() => {
 
 .back-login {
   width: 100%;
-  margin-top: 18px;
+  min-height: 40px;
+  margin-top: 14px;
+  padding: 8px 12px;
   border: 0;
+  border-radius: 999px;
   background: transparent;
   color: var(--primary-strong);
   font-weight: 900;
   cursor: pointer;
+  transition: background-color .2s ease;
 }
 
-@media (max-width: 820px) {
+.back-login:hover {
+  background: rgba(79, 124, 255, .08);
+}
+
+@media (max-width: 960px) {
   .forgot-page {
     padding: 24px 16px;
   }
@@ -346,9 +365,15 @@ onBeforeUnmount(() => {
   .form-box {
     padding: 22px;
   }
+}
 
+@media (max-width: 620px) {
   .code-line {
     grid-template-columns: 1fr;
+  }
+
+  .brand-panel h1 {
+    font-size: 32px;
   }
 }
 </style>

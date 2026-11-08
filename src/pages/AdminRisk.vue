@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDateTime } from '@/utils/format'
 import LineIcon from '@/components/LineIcon.vue'
+import ErrorState from '@/components/ErrorState.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import {
   addAdminBlacklistApi,
@@ -30,6 +31,9 @@ const loading = ref(false)
 const verifyLoading = ref(false)
 const submitLoading = ref(false)
 const actionLoading = ref(new Set())
+const verifyError = ref('')
+const blacklistError = ref('')
+const blacklistLoaded = ref(false)
 
 const verifyStatus = ref('pending')
 const verifyLevel = ref('all')
@@ -288,6 +292,7 @@ const verifyEmptyText = computed(() => {
 
 const loadVerifications = async () => {
   verifyLoading.value = true
+  verifyError.value = ''
 
   try {
     const res = await getAdminVerificationsApi({
@@ -297,6 +302,9 @@ const loadVerifications = async () => {
     })
 
     verifications.value = normalizeList(res)
+  } catch {
+    verifyError.value = '实名认证列表加载失败，请检查网络连接后重试。'
+    ElMessage.error('加载实名认证列表失败')
   } finally {
     verifyLoading.value = false
   }
@@ -304,10 +312,15 @@ const loadVerifications = async () => {
 
 const loadBlacklists = async () => {
   loading.value = true
+  blacklistError.value = ''
 
   try {
     const res = await getAdminBlacklistsApi()
     blacklists.value = normalizeList(res)
+    blacklistLoaded.value = true
+  } catch {
+    blacklistError.value = '黑名单记录加载失败，请检查网络连接后重试。'
+    ElMessage.error('加载黑名单记录失败')
   } finally {
     loading.value = false
   }
@@ -394,8 +407,7 @@ const searchUsers = async query => {
     const payload = res?.data || res
     const list = payload?.list || payload?.data || payload?.items || payload || []
     userSearchOptions.value = Array.isArray(list) ? list : []
-  } catch (error) {
-    console.error('搜索用户失败:', error)
+  } catch {
     ElMessage.error('搜索用户失败，请稍后重试')
     userSearchOptions.value = []
   } finally {
@@ -412,10 +424,30 @@ const submitBlacklist = async () => {
   if (!form.reason.trim()) return ElMessage.warning('请填写加入黑名单原因')
   if (!form.isPermanent && !form.expiresAt) return ElMessage.warning('请选择限制到期时间')
 
+  const limitScope = form.limitType === 'publish'
+    ? '发布信息'
+    : form.limitType === 'claim'
+      ? '提交认领'
+      : '发布信息与提交认领'
+  const duration = form.isPermanent ? '长期生效' : `有效期至 ${form.expiresAt}`
+
+  try {
+    await ElMessageBox.confirm(
+      `确认将用户 #${form.userId} 加入黑名单？限制类型为「${limitText(form.limitType)}」，${duration}。生效后该用户将无法${limitScope}。`,
+      '确认加入黑名单',
+      {
+        type: 'warning',
+        confirmButtonText: '确认加入黑名单',
+        cancelButtonText: '取消'
+      }
+    )
+  } catch {
+    return
+  }
+
   submitLoading.value = true
 
   try {
-    console.log('提交黑名单 - userId:', form.userId)
     await addAdminBlacklistApi({
       userId: form.userId,
       reason: form.reason,
@@ -427,6 +459,8 @@ const submitBlacklist = async () => {
     ElMessage.success('已加入黑名单')
     resetForm()
     await loadBlacklists()
+  } catch {
+    ElMessage.error('加入黑名单失败，请稍后重试')
   } finally {
     submitLoading.value = false
   }
@@ -443,6 +477,20 @@ const confirmReleaseBlacklist = async () => {
 
   if (!releaseReason.value.trim()) {
     ElMessage.warning('请填写解除原因')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确认解除对「${getUsername(currentReleaseBlacklist.value)}」的限制？解除后该用户将恢复正常的发布与认领权限，解除原因会记录在案。`,
+      '确认解除限制',
+      {
+        type: 'warning',
+        confirmButtonText: '确认解除',
+        cancelButtonText: '取消'
+      }
+    )
+  } catch {
     return
   }
 
@@ -466,7 +514,7 @@ const deleteBlacklist = async item => {
   try {
     await runAction('blacklist', item.id, async () => {
       await ElMessageBox.confirm(
-        `确认删除「${getUsername(item)}」的黑名单记录吗？该操作仅用于误添加、测试误加或重复添加。`,
+        `确认删除「${getUsername(item)}」的黑名单记录吗？该操作仅用于误添加、测试误加或重复添加，删除后记录不可恢复；如需恢复该用户权限请使用「解除限制」。`,
         '删除黑名单记录',
         {
           type: 'warning',
@@ -485,6 +533,14 @@ const deleteBlacklist = async item => {
     }
   }
 }
+
+watch(
+  () => blacklists.value.length,
+  total => {
+    const maxPage = Math.max(1, Math.ceil(total / blacklistPageSize.value))
+    if (blacklistCurrentPage.value > maxPage) blacklistCurrentPage.value = maxPage
+  }
+)
 
 watch(
   () => props.tab,
@@ -507,30 +563,32 @@ onMounted(load)
   <div class="risk-page fade-up">
     <el-tabs v-model="active" class="admin-tabs">
       <el-tab-pane label="实名认证审核" name="verify">
-        <section class="verify-overview">
+        <h2 class="sr-only">实名认证审核列表</h2>
+
+        <section class="verify-overview" aria-label="实名认证审核概览">
           <button type="button" :class="{ active: verifyStatus === 'all' }" @click="verifyStatus = 'all'">
-            <b>{{ verifyCounts.total }}</b>
+            <b>{{ verifyLoading || verifyError ? '—' : verifyCounts.total }}</b>
             <span>全部申请</span>
           </button>
 
           <button type="button" :class="{ active: verifyStatus === 'pending' }" @click="verifyStatus = 'pending'">
-            <b>{{ verifyCounts.pending }}</b>
+            <b>{{ verifyLoading || verifyError ? '—' : verifyCounts.pending }}</b>
             <span>待审核</span>
           </button>
 
           <button type="button" :class="{ active: verifyStatus === 'approved' }" @click="verifyStatus = 'approved'">
-            <b>{{ verifyCounts.approved }}</b>
+            <b>{{ verifyLoading || verifyError ? '—' : verifyCounts.approved }}</b>
             <span>已通过</span>
           </button>
 
           <button type="button" :class="{ active: verifyStatus === 'rejected' }" @click="verifyStatus = 'rejected'">
-            <b>{{ verifyCounts.rejected }}</b>
+            <b>{{ verifyLoading || verifyError ? '—' : verifyCounts.rejected }}</b>
             <span>已驳回</span>
           </button>
         </section>
 
         <div class="verify-toolbar">
-          <div class="filter-pills">
+          <div class="filter-pills" role="group" aria-label="按状态筛选实名认证申请">
             <button type="button" :class="{ active: verifyStatus === 'all' }" @click="verifyStatus = 'all'">全部</button>
             <button type="button" :class="{ active: verifyStatus === 'pending' }" @click="verifyStatus = 'pending'">待审核</button>
             <button type="button" :class="{ active: verifyStatus === 'approved' }" @click="verifyStatus = 'approved'">已通过</button>
@@ -548,13 +606,24 @@ onMounted(load)
           <el-button :loading="verifyLoading" @click="loadVerifications">搜索 / 刷新</el-button>
         </div>
 
-        <section v-if="verifyLoading" class="loading-list">
-          <el-skeleton v-for="item in 3" :key="item" animated>
+        <ErrorState
+          v-if="verifyError && !verifyLoading"
+          title="实名认证列表加载失败"
+          :desc="verifyError"
+          @retry="loadVerifications"
+        />
+
+        <section v-else-if="verifyLoading" class="loading-list" aria-busy="true" aria-label="实名认证列表加载中">
+          <el-skeleton v-for="item in 3" :key="item" animated class="skeleton-row">
             <template #template>
-              <div class="skeleton-row">
-                <el-skeleton-item variant="h3" style="width: 36%" />
-                <el-skeleton-item variant="text" style="width: 82%" />
-                <el-skeleton-item variant="text" style="width: 52%" />
+              <div class="skeleton-line">
+                <el-skeleton-item variant="circle" class="skeleton-icon" />
+
+                <div class="skeleton-copy">
+                  <el-skeleton-item variant="h3" style="width: 36%" />
+                  <el-skeleton-item variant="text" style="width: 82%" />
+                  <el-skeleton-item variant="text" style="width: 52%" />
+                </div>
               </div>
             </template>
           </el-skeleton>
@@ -619,24 +688,24 @@ onMounted(load)
       </el-tab-pane>
 
       <el-tab-pane label="黑名单管理" name="blacklist">
-  <section class="blacklist-overview">
+  <section class="blacklist-overview" aria-label="黑名单记录概览">
     <div class="overview-card">
-      <b>{{ blacklistCounts.total }}</b>
+      <b>{{ blacklistError ? '—' : blacklistCounts.total }}</b>
       <span>全部记录</span>
     </div>
 
     <div class="overview-card danger">
-      <b>{{ blacklistCounts.active }}</b>
+      <b>{{ blacklistError ? '—' : blacklistCounts.active }}</b>
       <span>限制中</span>
     </div>
 
     <div class="overview-card warning">
-      <b>{{ blacklistCounts.expired }}</b>
+      <b>{{ blacklistError ? '—' : blacklistCounts.expired }}</b>
       <span>已过期</span>
     </div>
 
     <div class="overview-card muted">
-      <b>{{ blacklistCounts.inactive }}</b>
+      <b>{{ blacklistError ? '—' : blacklistCounts.inactive }}</b>
       <span>已解除</span>
     </div>
   </section>
@@ -804,9 +873,34 @@ onMounted(load)
       label="风控用户管理"
       name="manage"
     >
-      <section class="risk-list">
+      <h2 class="sr-only">黑名单记录列表</h2>
+
+      <ErrorState
+        v-if="blacklistError && !loading"
+        title="黑名单记录加载失败"
+        :desc="blacklistError"
+        @retry="loadBlacklists"
+      />
+
+      <section v-else-if="loading && !blacklistLoaded" class="risk-list" aria-busy="true" aria-label="黑名单记录加载中">
+        <el-skeleton v-for="item in 3" :key="item" animated class="skeleton-row">
+          <template #template>
+            <div class="skeleton-line">
+              <el-skeleton-item variant="circle" class="skeleton-icon" />
+
+              <div class="skeleton-copy">
+                <el-skeleton-item variant="h3" style="width: 34%" />
+                <el-skeleton-item variant="text" style="width: 78%" />
+                <el-skeleton-item variant="text" style="width: 52%" />
+              </div>
+            </div>
+          </template>
+        </el-skeleton>
+      </section>
+
+      <section v-else class="risk-list">
         <EmptyState
-          v-if="!loading && !blacklists.length"
+          v-if="!blacklists.length"
           title="暂无黑名单记录"
           desc="添加黑名单后，会在这里集中展示限制记录。"
         />
@@ -918,6 +1012,7 @@ onMounted(load)
             :total="blacklists.length"
             layout="prev, pager, next, jumper"
             background
+            aria-label="黑名单记录分页"
           />
         </div>
       </section>
@@ -926,7 +1021,7 @@ onMounted(load)
 </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="rejectDialog" title="填写实名认证驳回原因" width="480px">
+    <el-dialog v-model="rejectDialog" title="填写实名认证驳回原因" width="min(480px, 92vw)">
       <el-input
         v-model="rejectReason"
         type="textarea"
@@ -946,7 +1041,7 @@ onMounted(load)
       </template>
     </el-dialog>
 
-    <el-dialog v-model="releaseDialog" title="填写解除限制原因" width="480px">
+    <el-dialog v-model="releaseDialog" title="填写解除限制原因" width="min(480px, 92vw)">
       <el-input
         v-model="releaseReason"
         type="textarea"
@@ -980,7 +1075,7 @@ onMounted(load)
 .blacklist-overview {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  gap: 16px;
   margin-bottom: 16px;
   padding: 6px;
 }
@@ -1072,7 +1167,8 @@ onMounted(load)
 .verify-list,
 .loading-list {
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  min-width: 0;
 }
 
 .verify-row {
@@ -1098,6 +1194,7 @@ onMounted(load)
 
 .title b {
   font-size: 18px;
+  overflow-wrap: anywhere;
 }
 
 .verify-main p,
@@ -1105,11 +1202,19 @@ onMounted(load)
   margin: 8px 0;
   color: var(--muted);
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .verify-main small,
 .risk-row small {
   color: #8b95a7;
+  overflow-wrap: anywhere;
+}
+
+.identity-note,
+.reason-line,
+.release-line {
+  overflow-wrap: anywhere;
 }
 
 .identity-note,
@@ -1140,7 +1245,7 @@ onMounted(load)
 
 .actions :deep(.el-button),
 .blacklist-form :deep(.el-button) {
-  min-height: 38px;
+  min-height: 40px;
   padding: 9px 18px;
   border-radius: 999px;
   font-weight: 900;
@@ -1207,6 +1312,25 @@ onMounted(load)
   border-radius: 24px;
   background: rgba(255, 255, 255, .78);
   box-shadow: 0 14px 34px rgba(31, 45, 92, .08);
+}
+
+.skeleton-line {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.skeleton-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+}
+
+.skeleton-copy {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
 }
 
 .blacklist-layout {
@@ -1436,7 +1560,16 @@ onMounted(load)
 
 .risk-list {
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  min-width: 0;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+  padding: 20px 0 10px;
+  overflow-x: auto;
 }
 
 .risk-row {
@@ -1489,20 +1622,15 @@ onMounted(load)
   box-shadow: 0 10px 24px rgba(79, 124, 255, .18);
 }
 
-@media (max-width: 1080px) {
-  .verify-toolbar {
-    grid-template-columns: 1fr;
-  }
-
+@media (max-width: 960px) {
+  .verify-toolbar,
   .blacklist-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
-}
 
-@media (max-width: 920px) {
   .blacklist-overview,
   .verify-overview {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .risk-row,
@@ -1515,7 +1643,16 @@ onMounted(load)
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 620px) {
+  .admin-tabs {
+    padding: 14px;
+  }
+
+  .blacklist-overview,
+  .verify-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .blacklist-form {
     border-radius: 22px;
   }
@@ -1547,22 +1684,49 @@ onMounted(load)
   .blacklist-submit {
     width: 100%;
   }
+
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+    min-height: 42px;
+  }
+
+  .verify-toolbar :deep(.el-select) {
+    width: 100% !important;
+  }
+
+  .skeleton-line {
+    grid-template-columns: 1fr;
+  }
 }
 
-/* 用户搜索下拉选项 - 使用全局选择器，因为下拉框被teleport到body */
-.user-search-dropdown {
+/* 用户搜索下拉选项 - 下拉框被 teleport 到 body，scoped 选择器不生效，必须用 :global */
+:global(.user-search-dropdown) {
   min-width: 480px !important;
 }
 
-.user-search-dropdown .el-select-dropdown__list {
+:global(.user-search-dropdown .el-select-dropdown__list) {
   padding: 8px 0;
   max-height: 520px !important;
 }
 
-.user-search-dropdown .el-select-dropdown__item {
+:global(.user-search-dropdown .el-select-dropdown__item) {
   height: auto !important;
   padding: 10px 16px !important;
   line-height: 1.5 !important;
+}
+
+@media (max-width: 620px) {
+  :global(.user-search-dropdown) {
+    min-width: 0 !important;
+    width: calc(100vw - 32px) !important;
+  }
 }
 
 .user-search-option {

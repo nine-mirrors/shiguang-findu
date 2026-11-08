@@ -20,8 +20,8 @@ const handleRetry = () => emit('retry')
 </script>
 
 <template>
-  <div class="error-state">
-    <div class="error-illustration">⚠️</div>
+  <div class="error-state" role="alert">
+    <div class="error-illustration" aria-hidden="true">⚠️</div>
     <h3>{{ props.title }}</h3>
     <p>{{ props.desc }}</p>
     <el-button v-if="props.buttonText" type="primary" @click="handleRetry">{{ props.buttonText }}</el-button>

@@ -85,6 +85,7 @@ export function serializeClaim(claim, { self = false } = {}) {
     method: claim.method,
     proofText: claim.proofText || '',
     proofImage: claim.proofImage || '',
+    proofImages: parseImages(claim.proofImages),
     deliveryAddress: claim.deliveryAddress || '',
     phone: phoneFor(claim.phone, self),
     status: claim.status,
@@ -189,6 +190,20 @@ export function serializeDispute(record) {
     createdAt: formatDateTime(record.createdAt),
     resolvedAt: formatDateTime(record.resolvedAt),
     ...(record.item ? { item: serializeItem(record.item) } : {})
+  }
+}
+
+export function serializeAdminLog(record) {
+  if (!record) return null
+  return {
+    id: record.id,
+    userId: record.userId ?? null,
+    adminName: record.adminName || '',
+    action: record.action || '',
+    targetType: record.targetType || '',
+    targetId: record.targetId ?? null,
+    detail: record.detail || '',
+    createdAt: formatDateTime(record.createdAt)
   }
 }
 

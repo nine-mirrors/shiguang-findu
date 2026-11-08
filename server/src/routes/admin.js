@@ -13,8 +13,11 @@ import {
   serializeDispute,
   serializeBlacklist,
   serializeVerification,
-  serializeUser
+  serializeUser,
+  serializeAdminLog
 } from '../utils/serialize.js'
+import { logAdminAction } from '../utils/adminLog.js'
+import { runOverdueScan } from '../services/overdue.js'
 
 const router = Router()
 
@@ -223,7 +226,12 @@ async function auditItem(req, res) {
   await notify({
     userId: item.userId,
     type: 'audit',
-    title: auditStatus === 'approved' ? '发布信息审核通过' : auditStatus === 'rejected' ? '发布信息审核未通过' : '发布信息已重新进入待审核',
+    title:
+      auditStatus === 'approved'
+        ? '发布信息审核通过'
+        : auditStatus === 'rejected'
+          ? '发布信息审核未通过'
+          : '发布信息已重新进入待审核',
     content:
       auditStatus === 'approved'
         ? `你发布的「${item.name}」已展示到失物大厅。`
@@ -231,6 +239,14 @@ async function auditItem(req, res) {
           ? rejectReason || '信息不完整，请修改后重新提交。'
           : `你发布的「${item.name}」已重新进入待审核队列。`,
     relatedId: item.id
+  })
+
+  await logAdminAction(req, {
+    action:
+      auditStatus === 'approved' ? '审核通过物品' : auditStatus === 'rejected' ? '驳回物品' : '重置为待审核',
+    targetType: 'item',
+    targetId: item.id,
+    detail: rejectReason ? `「${item.name}」：${rejectReason}` : `「${item.name}」`
   })
 
   if (auditStatus === 'approved' && item.type === 'found') {
@@ -269,6 +285,13 @@ async function deleteAdminItem(req, res) {
     title: '发布信息已被管理员下架',
     content: `你发布的「${item.name}」因违规或信息错误已被下架。`,
     relatedId: item.id
+  })
+
+  await logAdminAction(req, {
+    action: '下架物品',
+    targetType: 'item',
+    targetId: item.id,
+    detail: `「${item.name}」`
   })
 
   res.json({ success: true, id })
@@ -400,6 +423,13 @@ router.put(
       relatedId: claim.id
     })
 
+    await logAdminAction(req, {
+      action: adminAudit === 'approved' ? '通过认领申请' : adminAudit === 'rejected' ? '驳回认领申请' : '要求补充材料',
+      targetType: 'claim',
+      targetId: claim.id,
+      detail: `物品「${claim.item?.name || claim.itemId}」·申请人 ${claim.claimantName || claim.userId}${remark ? `·${remark}` : ''}`
+    })
+
     res.json(serializeClaim(updated))
   })
 )
@@ -463,6 +493,13 @@ router.put(
       include: { item: { include: itemInclude } }
     })
 
+    await logAdminAction(req, {
+      action: '移交滞留物品',
+      targetType: 'storage',
+      targetId: record.id,
+      detail: `物品「${record.item?.name || record.itemId}」→ ${target}`
+    })
+
     res.json(serializeStorage(updated))
   })
 )
@@ -510,7 +547,63 @@ router.post(
       })
     }
 
+    await logAdminAction(req, {
+      action: announcement.status === 'published' ? '发布公告' : '保存公告草稿',
+      targetType: 'announcement',
+      targetId: announcement.id,
+      detail: announcement.title
+    })
+
     res.status(201).json(serializeAnnouncement(announcement))
+  })
+)
+
+/* ============================== 操作日志 / 维护任务 ============================== */
+
+router.get(
+  '/logs',
+  wrap(async (req, res) => {
+    const query = req.query || {}
+    const { page, size, skip, take } = getPagination(query, 20)
+    const where = {}
+
+    const action = String(query.action || '').trim()
+    if (action && action !== 'all') where.action = action
+
+    const targetType = String(query.targetType || query.target_type || '').trim()
+    if (targetType && targetType !== 'all') where.targetType = targetType
+
+    const keyword = String(query.keyword || '').trim()
+    if (keyword) {
+      where.OR = [
+        { adminName: { contains: keyword } },
+        { action: { contains: keyword } },
+        { detail: { contains: keyword } }
+      ]
+    }
+
+    const [total, list] = await Promise.all([
+      prisma.adminLog.count({ where }),
+      prisma.adminLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take })
+    ])
+
+    res.json(paginated(list.map(serializeAdminLog), total, page, size))
+  })
+)
+
+/** 手动触发一次逾期扫描（服务启动时和定时任务也会自动执行） */
+router.post(
+  '/maintenance/overdue-scan',
+  wrap(async (req, res) => {
+    const result = await runOverdueScan()
+
+    await logAdminAction(req, {
+      action: '触发逾期扫描',
+      targetType: 'maintenance',
+      detail: `扫描 ${result.scanned} 条，到期关闭 ${result.expired} 条，临期提醒 ${result.nearExpired} 条`
+    })
+
+    res.json({ success: true, ...result })
   })
 )
 
@@ -585,6 +678,13 @@ router.put(
       include: { item: { include: itemInclude } }
     })
 
+    await logAdminAction(req, {
+      action: '处理争议',
+      targetType: 'dispute',
+      targetId: updated.id,
+      detail: result
+    })
+
     res.json(serializeDispute(updated))
   })
 )
@@ -637,6 +737,13 @@ router.post(
       include: { user: true }
     })
 
+    await logAdminAction(req, {
+      action: '加入风险名单',
+      targetType: 'blacklist',
+      targetId: record.id,
+      detail: `用户 ${user.username} · 限制 ${record.limitType}`
+    })
+
     res.status(201).json(serializeBlacklist(record))
   })
 )
@@ -664,6 +771,13 @@ router.post(
         })
 
     if (!released.count) throw new HttpError(404, '未找到生效中的限制记录')
+
+    await logAdminAction(req, {
+      action: '解除风险限制',
+      targetType: 'blacklist',
+      targetId: byRecord?.id ?? rawId,
+      detail: releaseReason || `解除 ${released.count} 条限制`
+    })
 
     res.json({ success: true, released: released.count })
   })
@@ -717,6 +831,13 @@ router.put(
       include: { user: true }
     })
 
+    await logAdminAction(req, {
+      action: '解除风险限制',
+      targetType: 'blacklist',
+      targetId: updated.id,
+      detail: updated.releaseReason || `用户 ${updated.username || updated.userId}`
+    })
+
     res.json(serializeBlacklist(updated))
   })
 )
@@ -729,6 +850,14 @@ router.delete(
     if (!record) throw new HttpError(404, '未找到该记录')
 
     await prisma.blacklist.delete({ where: { id } })
+
+    await logAdminAction(req, {
+      action: '删除风险记录',
+      targetType: 'blacklist',
+      targetId: id,
+      detail: record.username || `用户 ${record.userId}`
+    })
+
     res.json({ success: true, id })
   })
 )
@@ -952,6 +1081,13 @@ router.put(
       title: status === 'approved' ? '实名认证审核通过' : '实名认证被驳回',
       content: status === 'approved' ? '你已解锁对应认领权限。' : reason || '认证信息不完整，请重新提交。',
       relatedId: record.id
+    })
+
+    await logAdminAction(req, {
+      action: status === 'approved' ? '通过实名认证' : '驳回实名认证',
+      targetType: 'verification',
+      targetId: record.id,
+      detail: `${record.realName || '未填写姓名'}${reason ? `·${reason}` : ''}`
     })
 
     res.json(serializeVerification(updated))

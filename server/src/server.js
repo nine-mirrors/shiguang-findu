@@ -1,6 +1,22 @@
 import { app } from './app.js'
 import { config } from './config.js'
 import { prisma } from './db.js'
+import { runOverdueScan } from './services/overdue.js'
+
+const OVERDUE_SCAN_INTERVAL = 6 * 60 * 60 * 1000
+
+async function scheduleOverdueScan() {
+  try {
+    const result = await runOverdueScan()
+    if (result.expired || result.nearExpired) {
+      console.log(
+        `[findu] 保管期扫描：到期关闭 ${result.expired} 条，临期提醒 ${result.nearExpired} 条`
+      )
+    }
+  } catch (error) {
+    console.warn('[findu] 保管期扫描失败:', error.message)
+  }
+}
 
 async function bootstrap() {
   try {
@@ -17,8 +33,14 @@ async function bootstrap() {
     console.log(`[findu] 环境: ${config.nodeEnv}`)
   })
 
+  // 逾期扫描：启动即跑一次，之后每 6 小时一次；unref 避免阻塞进程退出
+  scheduleOverdueScan()
+  const scanTimer = setInterval(scheduleOverdueScan, OVERDUE_SCAN_INTERVAL)
+  if (typeof scanTimer.unref === 'function') scanTimer.unref()
+
   const shutdown = async signal => {
     console.log(`\n[findu] 收到 ${signal}，正在关闭服务...`)
+    clearInterval(scanTimer)
     server.close(async () => {
       await prisma.$disconnect()
       process.exit(0)

@@ -91,6 +91,7 @@ model Claim {
   method            String    @default("offline") // offline | mail
   proofText         String    @default("")
   proofImage        String    @default("")
+  proofImages       String    @default("[]") // JSON 数组字符串，认领凭证多图
   deliveryAddress   String    @default("")
   phone             String    @default("")
   status            String    @default("pending") // pending | approved | rejected | handover_pending | completed | wrong_return_pending
@@ -195,6 +196,20 @@ model Dispute {
   createdAt     DateTime  @default(now())
 
   @@index([status])
+}
+
+model AdminLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  adminName  String   @default("")
+  action     String // 见 src/utils/adminLog.js 中的 ACTION 常量
+  targetType String   @default("") // item | claim | verification | blacklist | storage | announcement | dispute
+  targetId   Int?
+  detail     String   @default("")
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
 }
 
 model Blacklist {

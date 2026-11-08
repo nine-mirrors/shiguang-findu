@@ -6,6 +6,7 @@ import { addFavoriteApi, removeFavoriteApi } from '@/api/favorite'
 import { useUserStore } from '@/stores/user'
 import { storage } from '@/utils/storage'
 import { formatDateTime } from '@/utils/format'
+import { resolveImageUrl } from '@/utils/image'
 
 const props = defineProps({
   item: {
@@ -54,17 +55,7 @@ const itemCategory = computed(() => {
   return props.item.category_name || '其他'
 })
 
-const getFullImageUrl = url => {
-  if (!url) return ''
-  if (/^https?:\/\//.test(url)) return url
-
-  const baseURL = import.meta.env.VITE_API_BASE_URL || ''
-
-  if (url.startsWith('/storage/')) return `${baseURL}${url}`
-  if (url.startsWith('storage/')) return `${baseURL}/${url}`
-
-  return `${baseURL}/storage/${url.startsWith('/') ? url.slice(1) : url}`
-}
+const getFullImageUrl = url => resolveImageUrl(url)
 
 const itemImage = computed(() => {
   let url = ''
@@ -190,7 +181,7 @@ const goDetail = () => {
 <template>
   <article class="item-card" @click="goDetail">
     <div class="visual" :class="itemType">
-      <img v-if="itemImage" :src="itemImage" alt="物品照片" />
+      <img v-if="itemImage" :src="itemImage" alt="物品照片" loading="lazy" decoding="async" />
 
       <div v-else class="fallback-icon" :class="categoryClass">
         <span class="fallback-label">物品照片</span>
@@ -616,5 +607,12 @@ const goDetail = () => {
 
 .fav-btn svg {
   pointer-events: none;
+}
+
+@media (pointer: coarse), (max-width: 620px) {
+  .fav-btn {
+    width: 40px;
+    height: 40px;
+  }
 }
 </style>

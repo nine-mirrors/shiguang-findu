@@ -45,10 +45,12 @@ const getRedirectPath = () => {
 const submit = async () => {
   if (loading.value) return
 
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
+
   loading.value = true
 
   try {
-    await formRef.value.validate()
     await userStore.login(form)
     ElMessage.success('登录成功')
     router.push(getRedirectPath())
@@ -69,7 +71,7 @@ const submit = async () => {
     <section class="login-card fade-up">
       <div class="brand-panel">
         <div class="brand-top">
-          <div class="brand-logo">拾</div>
+          <div class="brand-logo" aria-hidden="true">拾</div>
 
           <div>
             <b>拾光 FindU</b>
@@ -118,12 +120,14 @@ const submit = async () => {
           :rules="rules"
           label-position="top"
           class="login-form"
+          :validate-on-rule-change="false"
           @keyup.enter="submit"
         >
           <el-form-item label="邮箱" prop="email">
             <el-input
               v-model.trim="form.email"
               size="large"
+              autocomplete="username"
               placeholder="请输入邮箱"
             />
           </el-form-item>
@@ -134,6 +138,7 @@ const submit = async () => {
               size="large"
               type="password"
               show-password
+              autocomplete="current-password"
               placeholder="请输入密码"
             />
           </el-form-item>
@@ -277,7 +282,7 @@ const submit = async () => {
   gap: 8px;
   padding: 7px 12px;
   border-radius: 999px;
-  color: #315fff;
+  color: var(--primary-strong);
   font-weight: 700;
   font-size: 13px;
   background: rgba(255, 255, 255, .66);
@@ -288,10 +293,8 @@ const submit = async () => {
   margin: 20px 0 16px;
   color: var(--ink);
   font-size: clamp(42px, 5vw, 67px);
-  line-height: 1.1;
-  letter-spacing: normal;
-  text-align: center;
-  opacity: 0.78;
+  line-height: 1.14;
+  letter-spacing: -.03em;
 }
 
 .brand-panel p {
@@ -422,7 +425,7 @@ const submit = async () => {
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 960px) {
   .login-page {
     padding: 22px;
   }
@@ -443,7 +446,7 @@ const submit = async () => {
 
 }
 
-@media (max-width: 520px) {
+@media (max-width: 620px) {
   .login-page {
     padding: 16px;
   }

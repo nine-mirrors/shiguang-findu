@@ -84,7 +84,7 @@ const redirectToLogin = () => {
 const redirectToForbidden = () => {
   if (window.location.pathname === '/403') return
 
-  window.location.href = '/403'
+  router.push('/403')
 }
 
 let lastNetworkErrorAt = 0
@@ -160,6 +160,8 @@ request.interceptors.response.use(
       ElMessage.error('接口不存在，请检查请求地址')
     } else if (status === 422) {
       ElMessage.error(message || '表单校验失败')
+    } else if (status === 429) {
+      ElMessage.error('操作过于频繁，请稍后再试')
     } else if (status >= 500) {
       ElMessage.error('服务器异常，请稍后再试')
     } else {
@@ -169,5 +171,26 @@ request.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+/**
+ * 同一个 GET（地址与参数完全一致）在飞行中只发一次，多个组件同时取同一份数据时共享结果。
+ * 请求结束后立即释放，不会缓存数据，也不影响手动刷新。
+ */
+const pendingGets = new Map()
+const rawGet = request.get.bind(request)
+
+request.get = (url, config = {}) => {
+  const key = `${url}::${JSON.stringify(config.params || {})}`
+
+  if (pendingGets.has(key)) return pendingGets.get(key)
+
+  const promise = rawGet(url, config).finally(() => {
+    pendingGets.delete(key)
+  })
+
+  pendingGets.set(key, promise)
+
+  return promise
+}
 
 export default request

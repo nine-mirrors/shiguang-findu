@@ -46,6 +46,13 @@ const links = [
     icon: 'route',
     tone: 'blue',
     desc: '热点区域、趋势、成功率与运营建议'
+  },
+  {
+    label: '操作日志',
+    path: '/admin/logs',
+    icon: 'file',
+    tone: 'purple',
+    desc: '管理员操作留痕与逾期扫描维护'
   }
 ]
 
@@ -73,9 +80,11 @@ const refreshPage = () => {
 
 <template>
   <div class="admin-shell page-shell">
+    <a class="skip-link" href="#admin-main">跳到后台主内容</a>
+
     <aside class="admin-side glass-card">
-      <router-link to="/admin/dashboard" class="admin-brand">
-        <span class="brand-mark pulse-ring">拾</span>
+      <router-link to="/admin/dashboard" class="admin-brand" aria-label="拾光 FindU 运营管理后台首页">
+        <span class="brand-mark pulse-ring" aria-hidden="true">拾</span>
 
         <div>
           <b>拾光 FindU</b>
@@ -84,7 +93,7 @@ const refreshPage = () => {
       </router-link>
 
       <div class="role-card">
-        <LineIcon name="shield" tone="blue" />
+        <LineIcon name="shield" tone="blue" aria-hidden="true" />
 
         <div>
           <b>管理员工作台</b>
@@ -92,17 +101,17 @@ const refreshPage = () => {
         </div>
       </div>
 
-      <nav class="admin-nav">
+      <nav class="admin-nav" aria-label="后台主导航">
         <router-link v-for="link in links" :key="link.path" :to="link.path">
-          <LineIcon :name="link.icon" :tone="link.tone" />
+          <LineIcon :name="link.icon" :tone="link.tone" aria-hidden="true" />
           <span>{{ link.label }}</span>
         </router-link>
       </nav>
 
-      <button class="logout-btn" @click="logout">退出后台</button>
+      <button type="button" class="logout-btn" @click="logout">退出后台</button>
     </aside>
 
-    <main class="admin-main">
+    <main id="admin-main" class="admin-main" tabindex="-1">
       <div class="admin-top glass-card">
         <div>
           <span class="kicker">拾光运营中枢</span>
@@ -273,6 +282,10 @@ const refreshPage = () => {
   padding: 18px 24px 40px;
 }
 
+.admin-main:focus {
+  outline: none;
+}
+
 .admin-top {
   margin-bottom: 22px;
   padding: 23px 26px;
@@ -323,6 +336,14 @@ const refreshPage = () => {
 }
 
 @media (max-width: 620px) {
+  .role-card {
+    display: none;
+  }
+
+  .admin-brand small {
+    display: none;
+  }
+
   .admin-nav {
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
