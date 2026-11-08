@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import ItemCard from '@/components/ItemCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ErrorState from '@/components/ErrorState.vue'
@@ -11,6 +11,7 @@ import { getFavoritesApi } from '@/api/favorite'
 import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
+const router = useRouter()
 const userStore = useUserStore()
 
 const loading = ref(true)
@@ -21,6 +22,8 @@ const categoryList = ref([])
 const page = ref(1)
 const pageSize = 6
 
+const FILTER_KEYS = ['keyword', 'type', 'category', 'location', 'status', 'hasPhoto']
+
 const query = reactive({
   keyword: '',
   type: 'all',
@@ -29,6 +32,46 @@ const query = reactive({
   status: 'all',
   hasPhoto: 'all'
 })
+
+let lastState = null
+
+function readRouteState() {
+  const source = route.query
+  const nextQuery = {}
+
+  FILTER_KEYS.forEach(key => {
+    nextQuery[key] = typeof source[key] === 'string' ? source[key] : (key === 'keyword' ? '' : 'all')
+  })
+
+  return {
+    query: nextQuery,
+    page: Math.max(1, Number(source.page) || 1)
+  }
+}
+
+function isSameState(a, b) {
+  return Boolean(a && b) &&
+    a.page === b.page &&
+    FILTER_KEYS.every(key => a.query[key] === b.query[key])
+}
+
+function buildRouteQuery(nextQuery, nextPage) {
+  // 保留其他无关参数，只重写列表自身的状态
+  const next = { ...route.query }
+
+  FILTER_KEYS.forEach(key => delete next[key])
+  delete next.page
+
+  if (nextQuery.keyword) next.keyword = nextQuery.keyword
+  if (nextQuery.type !== 'all') next.type = nextQuery.type
+  if (nextQuery.category !== 'all') next.category = nextQuery.category
+  if (nextQuery.location !== 'all') next.location = nextQuery.location
+  if (nextQuery.status !== 'all') next.status = nextQuery.status
+  if (nextQuery.hasPhoto !== 'all') next.hasPhoto = nextQuery.hasPhoto
+  if (nextPage > 1) next.page = String(nextPage)
+
+  return next
+}
 
 const fallbackCategories = [
   { id: '校园卡', name: '校园卡' },
@@ -183,7 +226,6 @@ async function loadFavorites() {
 async function load() {
   loading.value = true
   loadError.value = false
-  page.value = 1
 
   try {
     const res = await getItemsApi(buildParams())
@@ -212,14 +254,36 @@ function handleFavoriteChange({ itemId, favorited }) {
 }
 
 function syncRoute() {
-  query.keyword = route.query.keyword || ''
-  query.category = route.query.category || 'all'
-  query.type = route.query.type || 'all'
-  query.location = route.query.location || 'all'
-  query.status = route.query.status || 'all'
-  query.hasPhoto = route.query.hasPhoto || 'all'
+  const state = readRouteState()
+
+  if (isSameState(state, lastState)) return
+
+  lastState = state
+  Object.assign(query, state.query)
+  page.value = state.page
 
   load()
+}
+
+function applyFilters() {
+  const nextQuery = { ...query }
+  const nextState = { query: nextQuery, page: 1 }
+
+  page.value = 1
+
+  // 条件没变时直接重新请求，避免多余的历史记录
+  if (isSameState(nextState, readRouteState())) {
+    load()
+    return
+  }
+
+  router.push({ query: buildRouteQuery(nextQuery, 1) })
+}
+
+function handlePageChange(value) {
+  if (value === readRouteState().page) return
+
+  router.push({ query: buildRouteQuery(query, value) })
 }
 
 onMounted(async () => {
@@ -248,16 +312,17 @@ watch(() => route.query, syncRoute)
         size="large"
         clearable
         placeholder="搜索物品名称、地点、描述关键词"
-        @keyup.enter="load"
+        @keyup.enter="applyFilters"
+        @clear="applyFilters"
       />
 
-      <el-select v-model="query.type" size="large" placeholder="类型" @change="load">
+      <el-select v-model="query.type" size="large" placeholder="类型" @change="applyFilters">
         <el-option label="全部类型" value="all" />
         <el-option label="失物" value="lost" />
         <el-option label="招领" value="found" />
       </el-select>
 
-      <el-select v-model="query.category" size="large" placeholder="分类" @change="load">
+      <el-select v-model="query.category" size="large" placeholder="分类" @change="applyFilters">
         <el-option label="全部分类" value="all" />
         <el-option
           v-for="category in categories"
@@ -267,24 +332,24 @@ watch(() => route.query, syncRoute)
         />
       </el-select>
 
-      <el-select v-model="query.location" size="large" placeholder="地点" @change="load">
+      <el-select v-model="query.location" size="large" placeholder="地点" @change="applyFilters">
         <el-option label="全部地点" value="all" />
         <el-option v-for="location in locations" :key="location" :label="location" :value="location" />
       </el-select>
 
-      <el-select v-model="query.status" size="large" placeholder="状态" @change="load">
+      <el-select v-model="query.status" size="large" placeholder="状态" @change="applyFilters">
         <el-option label="全部状态" value="all" />
         <el-option label="寻找中 / 待认领" value="open" />
         <el-option label="认领中" value="claiming" />
         <el-option label="已完成" value="completed" />
       </el-select>
 
-      <el-select v-model="query.hasPhoto" size="large" placeholder="照片" @change="load">
+      <el-select v-model="query.hasPhoto" size="large" placeholder="照片" @change="applyFilters">
         <el-option label="全部照片" value="all" />
         <el-option label="仅看有照片" value="with" />
       </el-select>
 
-      <el-button type="primary" size="large" :loading="loading" @click="load">搜索</el-button>
+      <el-button type="primary" size="large" :loading="loading" @click="applyFilters">搜索</el-button>
     </section>
 
     <div class="result-bar">
@@ -325,6 +390,7 @@ watch(() => route.query, syncRoute)
         layout="prev, pager, next"
         :page-size="pageSize"
         :total="items.length"
+        @current-change="handlePageChange"
       />
     </div>
   </div>

@@ -22,11 +22,149 @@ const loading = ref(false)
 const error = ref('')
 const activeTab = ref('overview')
 
+const STATUS_LABELS = {
+  open: '寻找中',
+  claiming: '认领中',
+  completed: '已完成',
+  closed: '已关闭',
+  pending: '待审核',
+  approved: '已通过',
+  rejected: '已驳回'
+}
+
+const STATUS_TYPES = {
+  open: 'primary',
+  claiming: 'warning',
+  completed: 'success',
+  closed: 'info',
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger'
+}
+
+const STATUS_ORDER = ['open', 'claiming', 'completed', 'closed', 'pending', 'approved', 'rejected']
+
+const toNumber = value => {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : 0
+}
+
+const roundPercent = value => Math.round(value * 10) / 10
+
+const readPercent = entry => {
+  if (entry.percent !== undefined && entry.percent !== null) return toNumber(entry.percent)
+  if (entry.percentage !== undefined && entry.percentage !== null) return toNumber(entry.percentage)
+  if (entry.ratio !== undefined && entry.ratio !== null) return toNumber(entry.ratio) * 100
+
+  return null
+}
+
+// 状态分布：兼容 [{ status, count, percent }] 与 { open: 12 } 两种结构，统一成带数量与占比的列表
+const normalizeItemStatusStats = raw => {
+  let list = []
+
+  if (Array.isArray(raw)) {
+    list = raw
+      .filter(entry => entry !== null && entry !== undefined)
+      .map(entry => {
+        if (typeof entry !== 'object') {
+          const key = String(entry)
+
+          return {
+            key,
+            name: STATUS_LABELS[key] || key,
+            value: 0,
+            percent: null
+          }
+        }
+
+        const key = String(entry.status || entry.key || entry.code || entry.name || '')
+
+        return {
+          key,
+          name: entry.label || entry.name || STATUS_LABELS[key] || key,
+          value: toNumber(entry.count ?? entry.value ?? entry.total ?? entry.quantity),
+          percent: readPercent(entry)
+        }
+      })
+  } else if (raw && typeof raw === 'object') {
+    list = Object.entries(raw).map(([key, value]) => ({
+      key,
+      name: STATUS_LABELS[key] || key,
+      value: toNumber(value),
+      percent: null
+    }))
+  }
+
+  const total = list.reduce((sum, item) => sum + item.value, 0)
+
+  return list
+    .filter(item => item.key && item.value > 0)
+    .sort((a, b) => {
+      const ai = STATUS_ORDER.indexOf(a.key)
+      const bi = STATUS_ORDER.indexOf(b.key)
+
+      return (ai === -1 ? STATUS_ORDER.length : ai) - (bi === -1 ? STATUS_ORDER.length : bi)
+    })
+    .map(item => ({
+      name: item.name,
+      value: item.value,
+      type: STATUS_TYPES[item.key] || 'primary',
+      percent: roundPercent(item.percent === null ? (total > 0 ? (item.value / total) * 100 : 0) : item.percent)
+    }))
+}
+
+// 趋势：兼容 [{ date, items, claims }]、{ new_items: {...}, new_claims: {...} } 与 { date: count }，统一按日期升序
+const normalizeDailyTrend = raw => {
+  let rows = []
+
+  if (Array.isArray(raw)) {
+    rows = raw
+      .filter(entry => entry && typeof entry === 'object')
+      .map(entry => ({
+        date: String(entry.date || entry.day || entry.dt || ''),
+        items: toNumber(entry.items ?? entry.newItems ?? entry.new_items ?? entry.itemCount ?? entry.item_count ?? entry.count),
+        claims: toNumber(entry.claims ?? entry.newClaims ?? entry.new_claims ?? entry.claimCount ?? entry.claim_count)
+      }))
+  } else if (raw && typeof raw === 'object') {
+    const itemsMap = raw.new_items || raw.newItems || null
+    const claimsMap = raw.new_claims || raw.newClaims || null
+
+    if (itemsMap || claimsMap) {
+      const dates = new Set([...Object.keys(itemsMap || {}), ...Object.keys(claimsMap || {})])
+
+      rows = [...dates].map(date => ({
+        date,
+        items: toNumber(itemsMap?.[date]),
+        claims: toNumber(claimsMap?.[date])
+      }))
+    } else {
+      rows = Object.entries(raw).map(([date, value]) => ({
+        date,
+        items: toNumber(value),
+        claims: 0
+      }))
+    }
+  }
+
+  return rows
+    .filter(row => row.date)
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+const shortDate = date => String(date || '').slice(5)
+
 const normalizeAnalytics = res => {
   const payload = res?.data || res || {}
 
   // 后端已返回整理好的扁平结构，直接使用，避免被下面的旧字段兼容逻辑覆盖成空值
-  if (payload.successRate !== undefined || Array.isArray(payload.hotLocations) || Array.isArray(payload.claimStages)) {
+  if (
+    payload.successRate !== undefined ||
+    Array.isArray(payload.hotLocations) ||
+    Array.isArray(payload.claimStages) ||
+    payload.itemStatusStats !== undefined ||
+    payload.dailyTrend !== undefined
+  ) {
     return {
       activeUsers: Number(payload.activeUsers) || 0,
       successRate: Number(payload.successRate) || 0,
@@ -34,8 +172,8 @@ const normalizeAnalytics = res => {
       riskUsers: Number(payload.riskUsers) || 0,
       hotLocations: (payload.hotLocations || []).filter(item => Number(item.value) > 0),
       claimStages: (payload.claimStages || []).filter(stage => Number(stage.value) > 0),
-      itemStatusStats: payload.itemStatusStats || [],
-      dailyTrend: payload.dailyTrend || [],
+      itemStatusStats: normalizeItemStatusStats(payload.itemStatusStats),
+      dailyTrend: normalizeDailyTrend(payload.dailyTrend),
       overview: {}
     }
   }
@@ -52,21 +190,8 @@ const normalizeAnalytics = res => {
   const completedClaims = (claimsByStatus['completed'] || 0) + (claimsByStatus['approved'] || 0)
   const successRate = totalClaims > 0 ? Math.round((completedClaims / totalClaims) * 100) : 0
 
-  // 适配新的数据结构：daily_trend_last_7_days: { new_items: {...}, new_claims: {...} }
-  let dailyTrendData = []
-  if (dailyTrendRaw.new_items && dailyTrendRaw.new_claims) {
-    const itemDates = Object.keys(dailyTrendRaw.new_items)
-    dailyTrendData = itemDates.map(date => ({
-      date,
-      items: Number(dailyTrendRaw.new_items[date]) || 0,
-      claims: Number(dailyTrendRaw.new_claims[date]) || 0
-    })).sort((a, b) => a.date.localeCompare(b.date))
-  } else if (typeof dailyTrendRaw === 'object' && !dailyTrendRaw.new_items) {
-    // 兼容旧结构
-    dailyTrendData = Object.entries(dailyTrendRaw)
-      .map(([date, value]) => ({ date, items: Number(value) || 0, claims: 0 }))
-      .sort((a, b) => a.date.localeCompare(b.date))
-  }
+  // 适配 daily_trend_last_7_days：{ new_items: {...}, new_claims: {...} } 或 { date: count }
+  const dailyTrendData = normalizeDailyTrend(dailyTrendRaw)
 
   // 计算近7日平均发布数
   let avgDailyPublish = '0'
@@ -93,12 +218,7 @@ const normalizeAnalytics = res => {
     { name: '已驳回', value: claimsByStatus['rejected'] || 0 }
   ].filter(stage => stage.value > 0)
 
-  const itemStatusStats = [
-    { name: '寻找中', value: itemsByStatus['open'] || 0, type: 'primary' },
-    { name: '认领中', value: itemsByStatus['claiming'] || 0, type: 'warning' },
-    { name: '已完成', value: itemsByStatus['completed'] || 0, type: 'success' },
-    { name: '已关闭', value: itemsByStatus['closed'] || 0, type: 'info' }
-  ].filter(item => item.value > 0)
+  const itemStatusStats = normalizeItemStatusStats(itemsByStatus)
 
   return {
     activeUsers: Object.values(usersByVerification).reduce((a, b) => a + Number(b), 0) || overview['总用户数'] || 0,
@@ -247,7 +367,7 @@ onMounted(load)
             <div v-for="item in data.itemStatusStats" :key="item.name" class="bar-row">
               <el-tag :type="statusType(item.type)" size="small">{{ item.name }}</el-tag>
               <div><i :style="{ width: barWidth(item.value, data.itemStatusStats) }"></i></div>
-              <b>{{ item.value }}</b>
+              <b>{{ item.value }}<small>{{ item.percent }}%</small></b>
             </div>
 
             <EmptyState
@@ -287,7 +407,7 @@ onMounted(load)
           <div v-for="item in data.itemStatusStats" :key="item.name" class="bar-row">
             <el-tag :type="statusType(item.type)" size="small">{{ item.name }}</el-tag>
             <div><i :style="{ width: barWidth(item.value, data.itemStatusStats) }"></i></div>
-            <b>{{ item.value }}</b>
+            <b>{{ item.value }}<small>{{ item.percent }}%</small></b>
           </div>
 
           <EmptyState
@@ -375,7 +495,7 @@ onMounted(load)
                   <span class="trend-value">{{ item.claims }}</span>
                 </div>
               </div>
-              <span class="trend-date">{{ item.date.slice(5) }}</span>
+              <span class="trend-date">{{ shortDate(item.date) }}</span>
             </div>
           </div>
         </section>
@@ -507,10 +627,22 @@ onMounted(load)
 
 .bar-row {
   display: grid;
-  grid-template-columns: 80px 1fr 40px;
+  grid-template-columns: 80px 1fr 96px;
   gap: 12px;
   align-items: center;
   margin: 14px 0;
+  color: var(--muted);
+}
+
+.bar-row b {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bar-row b small {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 700;
   color: var(--muted);
 }
 
