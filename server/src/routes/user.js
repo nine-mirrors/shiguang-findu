@@ -1,6 +1,14 @@
 import { Router } from 'express'
 import { prisma } from '../db.js'
 import { authenticate } from '../middleware/auth.js'
+import {
+  avatarUpload,
+  collectUploadedFiles,
+  toPublicPath,
+  assertImageFiles,
+  removeUploadedFiles,
+  removePublicFile
+} from '../middleware/upload.js'
 import { HttpError, wrap } from '../utils/http.js'
 import { serializeUser } from '../utils/serialize.js'
 import {
@@ -17,6 +25,43 @@ router.get(
   authenticate,
   wrap(async (req, res) => {
     res.json(serializeUser(req.user, { self: true }))
+  })
+)
+
+/** 上传头像：multipart 字段名 file，只允许图片；成功后清理旧头像文件 */
+router.post(
+  '/avatar',
+  authenticate,
+  avatarUpload,
+  wrap(async (req, res) => {
+    const files = collectUploadedFiles(req)
+
+    try {
+      const targetId = String(req.body?.userId ?? '').trim()
+      if (targetId && targetId !== String(req.user.id)) {
+        throw new HttpError(403, '只能修改自己的头像')
+      }
+
+      const file = files[0]
+      if (!file) {
+        throw new HttpError(422, '请选择要上传的头像图片', { errors: { file: '请选择头像图片' } })
+      }
+
+      assertImageFiles(files)
+
+      const avatar = toPublicPath(file)
+      const user = await prisma.user.update({
+        where: { id: req.user.id },
+        data: { avatar }
+      })
+
+      removePublicFile(req.user.avatar)
+
+      res.json({ avatar, user: serializeUser(user, { self: true }) })
+    } catch (error) {
+      removeUploadedFiles(files)
+      throw error
+    }
   })
 )
 

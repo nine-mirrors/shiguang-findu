@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { loginApi, registerApi, logoutApi } from '@/api/auth'
-import { getUserProfileApi, updateUserProfileApi } from '@/api/user'
+import { getUserProfileApi, updateUserProfileApi, uploadUserAvatarApi } from '@/api/user'
 import { storage } from '@/utils/storage'
 
 export const useUserStore = defineStore('user', () => {
@@ -134,6 +134,29 @@ export const useUserStore = defineStore('user', () => {
     return currentUser
   }
 
+  const uploadAvatar = async (file, onProgress) => {
+    const res = await uploadUserAvatarApi(file, {
+      onUploadProgress: event => {
+        if (!onProgress || !event?.total) return
+
+        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+      }
+    })
+
+    const payload = res?.data || res || {}
+    const avatar = payload.avatar || payload.user?.avatar || ''
+
+    if (!avatar) {
+      throw new Error('头像上传接口返回数据格式不正确')
+    }
+
+    const nextUser = normalizeUser(payload.user || { ...user.value, avatar })
+
+    setUser(nextUser)
+
+    return { avatar, user: nextUser }
+  }
+
   const logout = async () => {
     try {
       if (token.value) {
@@ -155,10 +178,13 @@ export const useUserStore = defineStore('user', () => {
     verificationLevel,
     displayName,
     avatarText,
+    setAuth,
+    setUser,
     login,
     register,
     fetchProfile,
     updateProfile,
+    uploadAvatar,
     logout,
     clearAuth
   }

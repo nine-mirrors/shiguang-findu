@@ -1,14 +1,26 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
+import { resolveImageUrl } from '@/utils/image'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 
 const menuOpen = ref(false)
+const navAvatarBroken = ref(false)
+
+const navAvatar = computed(() => {
+  if (navAvatarBroken.value) return ''
+
+  return resolveImageUrl(userStore.user?.avatar)
+})
+
+watch(() => userStore.user?.avatar, () => {
+  navAvatarBroken.value = false
+})
 
 watch(() => route.fullPath, () => {
   menuOpen.value = false
@@ -95,7 +107,10 @@ const handleCommand = async command => {
 
           <el-dropdown v-if="userStore.isLogin" @command="handleCommand">
             <button class="user-btn" type="button" aria-label="账户菜单">
-              <span class="nav-avatar" aria-hidden="true">{{ userStore.avatarText }}</span>
+              <span class="nav-avatar" aria-hidden="true">
+                <img v-if="navAvatar" :src="navAvatar" alt="" @error="navAvatarBroken = true" />
+                <template v-else>{{ userStore.avatarText }}</template>
+              </span>
               <span>{{ userStore.displayName }}</span>
             </button>
 
@@ -244,11 +259,19 @@ const handleCommand = async command => {
   height: 34px;
   display: grid;
   place-items: center;
+  overflow: hidden;
   border-radius: 50%;
   background: linear-gradient(135deg, #315fff, #4f7cff);
   color: #fff;
   font-size: 14px;
   font-weight: 700;
+}
+
+.nav-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .menu-btn span {

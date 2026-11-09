@@ -18,8 +18,18 @@ const cancelLoading = ref(false)
 const codeLoading = ref(false)
 const cancelDialog = ref(false)
 const avatarBroken = ref(false)
+const avatarInput = ref(null)
+const avatarPreview = ref('')
+const avatarUploading = ref(false)
+const avatarPercent = ref(0)
+const avatarDragOver = ref(false)
+const avatarError = ref('')
 const countdown = ref(0)
+let avatarPreviewUrl = ''
 let timer = null
+
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024
+const AVATAR_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
 
 const profile = ref({
   id: '',
@@ -53,7 +63,15 @@ const avatarText = computed(() => {
 
 const avatarUrl = computed(() => resolveImageUrl(profile.value.avatar))
 
-const showAvatarImage = computed(() => Boolean(profile.value.avatar) && !avatarBroken.value)
+const avatarDisplayUrl = computed(() => avatarPreview.value || avatarUrl.value)
+
+const showAvatarImage = computed(() => Boolean(avatarPreview.value || profile.value.avatar) && !avatarBroken.value)
+
+const avatarHint = computed(() => {
+  if (avatarError.value) return avatarError.value
+
+  return '点击或拖拽头像即可更换，支持 JPG / PNG / GIF / WebP，最大 5MB'
+})
 
 const roleText = computed(() => {
   if (profile.value.role === 'admin') return '管理员'
@@ -116,6 +134,127 @@ const handleAvatarError = () => {
   avatarBroken.value = true
 }
 
+const openAvatarPicker = () => {
+  if (avatarUploading.value) return
+
+  avatarInput.value?.click()
+}
+
+const resetAvatarInput = () => {
+  if (avatarInput.value) {
+    avatarInput.value.value = ''
+  }
+}
+
+const clearAvatarPreview = () => {
+  if (avatarPreviewUrl) {
+    URL.revokeObjectURL(avatarPreviewUrl)
+    avatarPreviewUrl = ''
+  }
+
+  avatarPreview.value = ''
+}
+
+const validateAvatarFile = file => {
+  if (!file) return '请选择要上传的图片'
+
+  if (!AVATAR_TYPES.includes(String(file.type).toLowerCase())) {
+    return '仅支持 JPG / PNG / GIF / WebP 格式的图片'
+  }
+
+  if (file.size > AVATAR_MAX_BYTES) {
+    return '头像图片不能超过 5MB，请压缩后重试'
+  }
+
+  return ''
+}
+
+const uploadAvatarFile = async file => {
+  if (avatarUploading.value) return
+
+  avatarError.value = ''
+
+  const invalidMessage = validateAvatarFile(file)
+
+  if (invalidMessage) {
+    avatarError.value = invalidMessage
+    ElMessage.warning(invalidMessage)
+    return
+  }
+
+  resetAvatarInput()
+  clearAvatarPreview()
+
+  avatarPreviewUrl = URL.createObjectURL(file)
+  avatarPreview.value = avatarPreviewUrl
+  avatarBroken.value = false
+  avatarUploading.value = true
+  avatarPercent.value = 0
+
+  try {
+    const result = await userStore.uploadAvatar(file, percent => {
+      avatarPercent.value = percent
+    })
+
+    clearAvatarPreview()
+    profile.value = { ...profile.value, avatar: result.avatar }
+    editForm.value = { ...editForm.value, avatar: result.avatar }
+    avatarBroken.value = false
+    ElMessage.success('头像已更新')
+  } catch (error) {
+    clearAvatarPreview()
+
+    const status = error.response?.status
+    const data = error.response?.data || {}
+
+    if (status === 413) {
+      avatarError.value = '头像图片超过 5MB 限制，请换一张更小的图片'
+    } else if (status === 422) {
+      avatarError.value = data.message || '图片格式不支持，请上传 JPG / PNG / GIF / WebP'
+    } else if (!status) {
+      avatarError.value = '网络异常，头像未上传成功，请重试'
+    } else if (status >= 500) {
+      avatarError.value = '服务器异常，头像未上传成功，请稍后重试'
+    } else {
+      avatarError.value = data.message || '头像上传失败，请重试'
+    }
+  } finally {
+    avatarUploading.value = false
+    avatarPercent.value = 0
+    resetAvatarInput()
+  }
+}
+
+const onAvatarChange = event => {
+  const file = event.target?.files?.[0]
+
+  if (file) {
+    uploadAvatarFile(file)
+  }
+}
+
+const onAvatarDragOver = () => {
+  if (avatarUploading.value) return
+
+  avatarDragOver.value = true
+}
+
+const onAvatarDragLeave = () => {
+  avatarDragOver.value = false
+}
+
+const onAvatarDrop = event => {
+  avatarDragOver.value = false
+
+  if (avatarUploading.value) return
+
+  const file = event.dataTransfer?.files?.[0]
+
+  if (file) {
+    uploadAvatarFile(file)
+  }
+}
+
 const startCountdown = () => {
   countdown.value = 60
 
@@ -147,6 +286,8 @@ const loadProfile = async () => {
     const res = await getUserProfileApi()
     profile.value = normalizeProfile(res)
     avatarBroken.value = false
+    avatarError.value = ''
+    clearAvatarPreview()
     syncEditForm()
     updateStoreUser(profile.value)
   } catch {
@@ -286,6 +427,8 @@ onBeforeUnmount(() => {
     clearInterval(timer)
     timer = null
   }
+
+  clearAvatarPreview()
 })
 </script>
 
@@ -307,11 +450,35 @@ onBeforeUnmount(() => {
 
     <template v-else>
       <section class="profile-card glass-card fade-up">
-        <div class="avatar-big" aria-hidden="true">
-          <img v-if="showAvatarImage" :src="avatarUrl" alt="" @error="handleAvatarError" />
+        <button
+          type="button"
+          class="avatar-big"
+          :class="{ 'is-dragover': avatarDragOver, 'is-uploading': avatarUploading }"
+          :aria-label="avatarUploading ? `正在上传头像，已完成 ${avatarPercent}%` : '更换头像'"
+          :aria-busy="avatarUploading"
+          @click="openAvatarPicker"
+          @dragover.prevent="onAvatarDragOver"
+          @dragleave.prevent="onAvatarDragLeave"
+          @drop.prevent="onAvatarDrop"
+        >
+          <img v-if="showAvatarImage" :src="avatarDisplayUrl" alt="" @error="handleAvatarError" />
 
-          <span v-else>{{ avatarText }}</span>
-        </div>
+          <span v-else aria-hidden="true">{{ avatarText }}</span>
+
+          <span class="avatar-overlay" aria-hidden="true">
+            <template v-if="avatarUploading">上传中 {{ avatarPercent }}%</template>
+            <template v-else>更换头像</template>
+          </span>
+        </button>
+
+        <input
+          ref="avatarInput"
+          class="avatar-input"
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          tabindex="-1"
+          @change="onAvatarChange"
+        />
 
         <div class="profile-intro">
           <span class="kicker">个人中心</span>
@@ -319,6 +486,10 @@ onBeforeUnmount(() => {
           <h1>{{ displayName }}</h1>
 
           <p>{{ profile.email || userStore.user?.email }}</p>
+
+          <p class="avatar-hint" :class="{ 'is-error': avatarError }" aria-live="polite">
+            {{ avatarHint }}
+          </p>
         </div>
 
         <div class="profile-actions">
@@ -466,18 +637,47 @@ onBeforeUnmount(() => {
 }
 
 .avatar-big {
+  position: relative;
   flex: none;
   width: 96px;
   height: 96px;
+  padding: 0;
+  border: 0;
   display: grid;
   place-items: center;
   overflow: hidden;
   border-radius: 32px;
   background: linear-gradient(135deg, var(--primary-strong), var(--primary));
   color: #fff;
+  font-family: inherit;
   font-size: 42px;
   font-weight: 1000;
   box-shadow: 0 20px 45px rgba(79, 124, 255, .22);
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+
+.avatar-big:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 24px 50px rgba(79, 124, 255, .28);
+}
+
+.avatar-big:focus-visible {
+  outline: 3px solid rgba(79, 124, 255, .5);
+  outline-offset: 3px;
+}
+
+.avatar-big.is-dragover {
+  outline: 3px dashed rgba(79, 124, 255, .75);
+  outline-offset: 3px;
+}
+
+.avatar-big.is-uploading {
+  cursor: progress;
+}
+
+.avatar-big.is-uploading img {
+  filter: brightness(.62);
 }
 
 .avatar-big img {
@@ -485,6 +685,63 @@ onBeforeUnmount(() => {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.avatar-overlay {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 8px 0 9px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  color: #fff;
+  background: linear-gradient(180deg, transparent, rgba(8, 16, 40, .58));
+  opacity: 0;
+  transition: opacity .18s ease;
+  pointer-events: none;
+}
+
+.avatar-big:hover .avatar-overlay,
+.avatar-big:focus-visible .avatar-overlay,
+.avatar-big.is-uploading .avatar-overlay {
+  opacity: 1;
+}
+
+.avatar-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.profile-card .avatar-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.profile-card .avatar-hint.is-error {
+  color: #cf3b3b;
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-big,
+  .avatar-overlay {
+    transition: none;
+  }
+
+  .avatar-big:hover {
+    transform: none;
+  }
 }
 
 .profile-intro {

@@ -40,6 +40,27 @@ export const updateUserProfileApi = data => {
 }
 
 /**
+ * 上传当前用户头像
+ * 文档接口：POST /api/user/avatar
+ *
+ * 说明：
+ * - multipart/form-data，字段名 file
+ * - 仅支持 jpg / jpeg / png / gif / webp，单张最大 5MB
+ * - 成功返回 { avatar, user }
+ * - 服务端会自动删除旧头像文件
+ */
+export const uploadUserAvatarApi = (file, config = {}) => {
+  const form = new FormData()
+
+  form.append('file', file)
+
+  return request.post('/api/user/avatar', form, {
+    timeout: 60000,
+    ...config
+  })
+}
+
+/**
  * 第二优先级：用户注销账号
  * 文档补充接口：POST /api/user/cancel
  *

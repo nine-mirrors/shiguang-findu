@@ -99,6 +99,7 @@ async function main() {
     assertStatus(res, 200, 'admin login')
     expect(res.data.user.role === 'admin', '角色应为 admin')
     ctx.adminToken = res.data.token
+    ctx.admin = res.data.user
   })
 
   await test('POST /api/auth/login 密码错误返回 401', async () => {
@@ -126,6 +127,82 @@ async function main() {
     })
     assertStatus(res, 200, 'update profile')
     expect(res.data.phone === '13800001111', 'phone 未更新')
+  })
+
+  await test('POST /api/user/avatar 需要登录（401）', async () => {
+    const form = new FormData()
+    form.append('file', new Blob([PNG], { type: 'image/png' }), 'avatar.png')
+    const res = await request('POST', '/api/user/avatar', { form })
+    assertStatus(res, 401, 'avatar no token')
+  })
+
+  await test('POST /api/user/avatar 上传头像并可通过 /uploads 访问', async () => {
+    const form = new FormData()
+    form.append('file', new Blob([PNG], { type: 'image/png' }), 'avatar.png')
+    const res = await request('POST', '/api/user/avatar', { token: ctx.studentToken, form })
+    assertStatus(res, 200, 'upload avatar')
+    expect(res.data.avatar && res.data.avatar.startsWith('/uploads/'), '应返回 /uploads 头像地址')
+    ctx.avatarPath = res.data.avatar
+
+    const profile = await request('GET', '/api/user/profile', { token: ctx.studentToken })
+    assertStatus(profile, 200, 'avatar profile')
+    expect(profile.data.avatar === ctx.avatarPath, 'profile.avatar 应与上传结果一致')
+
+    const staticRes = await fetch(`${BASE}${ctx.avatarPath}`)
+    expect(staticRes.status === 200, `头像应可访问，实际 ${staticRes.status}`)
+    expect(
+      (staticRes.headers.get('content-type') || '').includes('image'),
+      '头像 content-type 不是图片'
+    )
+  })
+
+  await test('POST /api/user/avatar 再次上传会清理旧头像文件', async () => {
+    const oldPath = ctx.avatarPath
+    const form = new FormData()
+    form.append('file', new Blob([PNG], { type: 'image/png' }), 'avatar-2.png')
+    const res = await request('POST', '/api/user/avatar', { token: ctx.studentToken, form })
+    assertStatus(res, 200, 're-upload avatar')
+    expect(res.data.avatar && res.data.avatar !== oldPath, '新头像地址应变化')
+    ctx.avatarPath = res.data.avatar
+
+    const removed = await fetch(`${BASE}${oldPath}`)
+    expect(removed.status === 404, `旧头像应被清理，实际 ${removed.status}`)
+
+    const kept = await fetch(`${BASE}${ctx.avatarPath}`)
+    expect(kept.status === 200, `新头像应可访问，实际 ${kept.status}`)
+  })
+
+  await test('POST /api/user/avatar 不能修改他人头像（403）', async () => {
+    const form = new FormData()
+    form.append('userId', String(ctx.admin.id))
+    form.append('file', new Blob([PNG], { type: 'image/png' }), 'avatar-other.png')
+    const res = await request('POST', '/api/user/avatar', { token: ctx.studentToken, form })
+    assertStatus(res, 403, 'avatar other user')
+
+    const still = await fetch(`${BASE}${ctx.avatarPath}`)
+    expect(still.status === 200, '越权失败后不应影响当前头像')
+  })
+
+  await test('POST /api/user/avatar 伪造图片被拒绝（422）', async () => {
+    const form = new FormData()
+    form.append('file', new Blob([Buffer.from('not an image at all')], { type: 'image/png' }), 'fake.png')
+    const res = await request('POST', '/api/user/avatar', { token: ctx.studentToken, form })
+    assertStatus(res, 422, 'fake avatar')
+  })
+
+  await test('POST /api/user/avatar 非法类型被拒绝（422）', async () => {
+    const form = new FormData()
+    form.append('file', new Blob([Buffer.from('hello')], { type: 'text/plain' }), 'note.txt')
+    const res = await request('POST', '/api/user/avatar', { token: ctx.studentToken, form })
+    assertStatus(res, 422, 'invalid avatar type')
+  })
+
+  await test('POST /api/user/avatar 超出 5MB 返回 413', async () => {
+    const big = Buffer.alloc(6 * 1024 * 1024, 1)
+    const form = new FormData()
+    form.append('file', new Blob([big], { type: 'image/png' }), 'big-avatar.png')
+    const res = await request('POST', '/api/user/avatar', { token: ctx.studentToken, form })
+    assertStatus(res, 413, 'oversize avatar')
   })
 
   await test('GET /api/lost-found/items 分页列表', async () => {

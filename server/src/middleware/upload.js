@@ -37,7 +37,11 @@ export const itemImageUpload = uploader.fields([
   { name: 'image', maxCount: 1 }
 ])
 
+/** 头像上传：字段名固定为 file，单文件 */
+export const avatarUpload = uploader.single('file')
+
 export function collectUploadedFiles(req) {
+  if (req.file) return [req.file]
   const groups = req.files || {}
   return Object.values(groups).flat()
 }
@@ -54,6 +58,22 @@ export function removeUploadedFiles(files = []) {
       // 文件可能已被清理，忽略
     }
   })
+}
+
+/** 删除 /uploads/xxx 形式的历史文件，避免头像等资源堆积；非本地上传路径直接忽略 */
+export function removePublicFile(publicPath) {
+  const value = String(publicPath || '').trim()
+  if (!value.startsWith('/uploads/')) return false
+
+  const filename = path.basename(value)
+  if (!filename) return false
+
+  try {
+    fs.unlinkSync(path.join(config.uploadDir, filename))
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** 读取文件头，确认确实是图片（防止伪造 Content-Type 上传任意文件） */

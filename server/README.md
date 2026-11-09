@@ -124,12 +124,13 @@ npm run db:reset
 | POST | `/api/auth/send-email-code` | 公开 | 发送邮箱验证码 |
 | POST | `/api/auth/logout` | 登录 | 登出（JWT 无状态，前端清除 token） |
 
-### 2. user（2）
+### 2. user（3）
 
 | 方法 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
 | GET | `/api/user/profile` | 登录 | 当前用户资料 |
 | PUT | `/api/user/profile` | 登录 | 修改用户名 / 头像 / 手机号 / 学号 |
+| POST | `/api/user/avatar` | 登录 | 上传头像（multipart，字段 `file`），返回 `{ avatar }`，并清理旧头像文件 |
 
 ### 3. category（1）
 
@@ -288,6 +289,19 @@ curl -X POST http://127.0.0.1:4000/api/lost-found/items/1/images \
 - 单张上限由 `MAX_UPLOAD_MB` 控制（默认 5MB），超限返回 `413`；伪造图片或非图片文件返回 `422`；
 - 文件落在 `uploads/`，响应返回相对路径 `/uploads/xxx.png`；
 - 通过 `http://127.0.0.1:4000/uploads/xxx.png` 直接访问，响应带 CORS 与 `Cross-Origin-Resource-Policy: cross-origin`。
+
+### 头像上传
+
+```bash
+curl -X POST http://127.0.0.1:4000/api/user/avatar \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@./avatar.png"
+```
+
+- multipart 字段名固定为 `file`，单次只接受一张图片，复用与帖子图片相同的扩展名 / MIME / 文件头校验和大小上限；
+- 成功后返回 `{ avatar: "/uploads/xxx.png" }`，`GET /api/user/profile` 的 `avatar` 同步更新；
+- 旧头像若为 `/uploads/...` 本地文件，会在更新成功后删除；外部 URL 或空值不受影响；
+- 未登录 `401`；携带他人 `userId` 返回 `403`；非图片 / 伪造文件 `422`；超过 `MAX_UPLOAD_MB` 返回 `413`。
 
 ## 切换 MySQL
 
